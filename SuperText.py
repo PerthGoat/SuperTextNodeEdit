@@ -233,7 +233,7 @@ class RTFWindow:
   def renameFileAndDir(self, entryBox):
     folderpath = self.nodeDir + entryBox.get()
     
-    if not os.path.isfile('/'.join(folderpath.split('/')[:-1]) + '.rtf') and len(folderpath.split('/')) > 2:
+    if not os.path.isdir('/'.join(folderpath.split('/')[:-1])):
       tk.messagebox.showerror(title='Non-existing tree', message="Can't move node to non-existing tree.")
       return None
     
