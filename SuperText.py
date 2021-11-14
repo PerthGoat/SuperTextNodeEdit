@@ -27,11 +27,22 @@ from RTFParser import RTFParser
 # ini parsing
 from iniconfig import INIConfig
 
-root = tk.Tk()
-
-st = ScrollableText(root)
-st.pack(fill='both', expand=True)
-
-print(st.image_create)
-
-root.mainloop()
+# this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
+class RTFWindow:
+  def __init__(self):
+    configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
+    
+    config_dict = RTFParser(configFile).readConfig() # read the config dictionary into a variable
+    
+    # set up public variables to this class
+    self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] # read in RTF header
+    self.nodeDir = config_dict['constants']['nodeDir'] # read in directory to hold RTF file tree
+    self.openFile = '' # holds the currently open file for easy saving etc.
+    self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
+    
+    # create main user interface window
+    self.createTkinterWindow()
+  
+  # main user interface
+  def createTkinterWindow(self):
+    pass
