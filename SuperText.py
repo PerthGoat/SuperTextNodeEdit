@@ -17,4 +17,15 @@ import shutil
 from threading import Thread
 
 # PIL functions used for grabbing the clipboard in a cross-platform way
-from PIL import Image, ImageTK, ImageGrab
+from PIL import Image, ImageTk, ImageGrab
+
+from uicomponents import ScrollableText
+
+root = tk.Tk()
+
+st = ScrollableText(root)
+st.pack(fill='both', expand=True)
+
+print(st.image_create)
+
+root.mainloop()
