@@ -58,7 +58,7 @@ class RTFParser:
       c = self.rtf[i] # I do this so advancing i doesn't trigger anything unexpected
       if self.blockstart(c): # '{' start of a block
         i += 1 # first get rid of the leading '{'
-        nextParse = RTFParser(self.rtf[i:])._parse # parse the code inside the block
+        nextParse = RTFParser(self.rtf[i:])._parse() # parse the code inside the block
         rtf_token += [nextParse[0]] # append the parsed block contents to the rtf_token list
         i += nextParse[1] # advance i past the parsed content
       elif self.tokenstart(c): # backslash encountered
@@ -74,6 +74,6 @@ class RTFParser:
       else: # else it is a string of text
         wordstr = self.getWordsAndSpaces(self.rtf[i:])
         i += len(wordstr)
-        rtf_token += [word]
+        rtf_token += [wordstr]
     
     return [rtf_token] # returned encapsulated to make concatenation easier
