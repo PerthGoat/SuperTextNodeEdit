@@ -19,7 +19,11 @@ from threading import Thread
 # PIL functions used for grabbing the clipboard in a cross-platform way
 from PIL import Image, ImageTk, ImageGrab
 
+# user defined functions
+# scrollable textboxes
 from uicomponents import ScrollableText
+# RTF parsing
+from RTFParser import RTFParser
 
 root = tk.Tk()
 
