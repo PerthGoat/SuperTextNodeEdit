@@ -24,6 +24,8 @@ from PIL import Image, ImageTk, ImageGrab
 from uicomponents import ScrollableText
 # RTF parsing
 from RTFParser import RTFParser
+# ini parsing
+from iniconfig import INIConfig
 
 root = tk.Tk()
 
