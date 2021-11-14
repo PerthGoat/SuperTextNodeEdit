@@ -32,7 +32,7 @@ class RTFWindow:
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
     
-    config_dict = RTFParser(configFile).readConfig() # read the config dictionary into a variable
+    config_dict = INIConfig(configFile).readConfig() # read the config dictionary into a variable
     
     # set up public variables to this class
     self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] # read in RTF header
@@ -45,4 +45,9 @@ class RTFWindow:
   
   # main user interface
   def createTkinterWindow(self):
-    pass
+    self.window = tk.Tk()
+    
+    self.window.mainloop()
+
+
+RTFWindow()
