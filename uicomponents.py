@@ -16,7 +16,7 @@ class ScrollableText(tk.Frame):
     self.grid_columnconfigure(0, weight=1)
     
     # pass styling arguments to the text
-    text = tk.Text(self, kwargs)
+    text = tk.Text(self, kwargs, wrap='word')
     text.grid(row=0, column=0, sticky='nsew') # fill available space with text
     
     # set up scrollbar to scroll the text area

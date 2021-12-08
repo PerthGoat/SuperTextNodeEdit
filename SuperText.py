@@ -116,7 +116,7 @@ class RTFWindow:
     try:
       with codecs.open(self.openFile, 'r', 'utf-8') as fi:
         data = fi.read()
-    except UnicodeDecodeError:
+    except UnicodeDecodeError: # on unicode fail, try to read as ascii as a backup
       with open(self.openFile, 'r') as fi:
         data = fi.read()
     
