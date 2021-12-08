@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # GUI utilities
 # Tkinter
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
@@ -27,8 +29,8 @@ from RTFParser import RTFParser
 # ini parsing
 from iniconfig import INIConfig
 
-# UTF-8 support
-import codecs
+# for utf-8 printing
+import sys
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -95,6 +97,7 @@ class RTFWindow:
     self.text.pack(fill='both', expand='True') # text fills entire remaining space
     
     self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
+    self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
     
     # end textarea
     
@@ -114,12 +117,11 @@ class RTFWindow:
     self.openFile = s_item['values'][0] # get the filename from the node
     
     try:
-      with codecs.open(self.openFile, 'r', 'utf-8') as fi:
+      with open(self.openFile, 'r', encoding='utf-8') as fi:
         data = fi.read()
-    except UnicodeDecodeError: # on unicode fail, try to read as ascii as a backup
+    except UnicodeDecodeError:
       with open(self.openFile, 'r') as fi:
         data = fi.read()
-    
     # parse the RTF using the RTF parser
     rt = RTFParser(data).parse()
     
@@ -132,6 +134,8 @@ class RTFWindow:
     
     # all header checks have passed, now the header can be trimmed off
     trimmed_header_rt = rt[5:]
+    # clear existing images from image list
+    self.tkinter_imagelist = []
     #print(trimmed_header_rt)
     # go thru each RTF block and do something with it
     for i, r in enumerate(trimmed_header_rt):
@@ -195,7 +199,7 @@ class RTFWindow:
     data = data.strip() # this is cleaner to remove extra whitespace
     data += '}'
     
-    with codecs.open(self.openFile, 'w', 'utf-8') as fi:
+    with open(self.openFile, 'w', encoding='utf-8') as fi:
       fi.write(data)
     
     tk.messagebox.showinfo(title='Saved file', message='Saved file')
@@ -275,6 +279,12 @@ class RTFWindow:
     
     self.text.image_create('insert', image=self.tkinter_imagelist[-1])
   
+  def copyFromClipboard(self, event):
+    print('copy')
+    print(event)
+    print(self.text.dump('1.0', 'end'))
+    return 'break'
+  
   # populate node tree with rtf files
   def populateNodeTree(self):
     self.tree.delete(*self.tree.get_children()) # clear current tree
@@ -301,4 +311,6 @@ class RTFWindow:
       self.openFile = ''
       return 'break'
 
-RTFWindow()
+if __name__ == '__main__':
+  sys.stdout.reconfigure(encoding='utf-8')
+  RTFWindow()
