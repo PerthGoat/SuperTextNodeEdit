@@ -27,6 +27,9 @@ from RTFParser import RTFParser
 # ini parsing
 from iniconfig import INIConfig
 
+# UTF-8 support
+import codecs
+
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
   def __init__(self):
@@ -46,7 +49,8 @@ class RTFWindow:
   # main user interface
   def createTkinterWindow(self):
     self.window = tk.Tk()
-    self.window.geometry('1000x600') # starting window size, I thought this size was pretty good
+    self.window.title('SuperText \u2014 Node-Based Text Editor')
+    self.window.geometry('1200x650') # starting window size, I thought this size was pretty good
     self.window.grid_columnconfigure(1, weight=1) # for responsive-resize
     self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
     
@@ -109,8 +113,12 @@ class RTFWindow:
     
     self.openFile = s_item['values'][0] # get the filename from the node
     
-    with open(self.openFile, 'r') as fi:
-      data = fi.read()
+    try:
+      with codecs.open(self.openFile, 'r', 'utf-8') as fi:
+        data = fi.read()
+    except UnicodeDecodeError:
+      with open(self.openFile, 'r') as fi:
+        data = fi.read()
     
     # parse the RTF using the RTF parser
     rt = RTFParser(data).parse()
@@ -187,7 +195,7 @@ class RTFWindow:
     data = data.strip() # this is cleaner to remove extra whitespace
     data += '}'
     
-    with open(self.openFile, 'w') as fi:
+    with codecs.open(self.openFile, 'w', 'utf-8') as fi:
       fi.write(data)
     
     tk.messagebox.showinfo(title='Saved file', message='Saved file')
