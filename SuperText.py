@@ -32,6 +32,9 @@ from iniconfig import INIConfig
 # for utf-8 printing
 import sys
 
+# for image copying
+from os_specific import clipboard_paste
+
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
   def __init__(self):
@@ -282,8 +285,24 @@ class RTFWindow:
   def copyFromClipboard(self, event):
     print('copy')
     print(event)
-    print(self.text.dump('1.0', 'end'))
+    sel_start = self.text.index('sel.first')
+    sel_end = self.text.index('sel.last')
+    
+    selected_text = self.text.dump(sel_start, sel_end)
+    
+    text_in_selection = [x for x in selected_text if 'text' in x]
+    imgs_in_selection = [x for x in selected_text if 'image' in x]
+    
+    ibytes = io.BytesIO()
+    shifted_img = ImageTk.getimage(self.tkinter_imagelist[0])
+    shifted_img.save(ibytes, 'BMP')
+    
+    #self.window.clipboard_clear()
+    clipboard_paste(ibytes.getvalue())
     return 'break'
+    if len(imgs_in_selection) > 0:
+      self.window.clipboard_append('aaa')
+      return 'break'
   
   # populate node tree with rtf files
   def populateNodeTree(self):
