@@ -115,12 +115,10 @@ class RTFWindow:
     self.text.delete('1.0', 'end') # delete all text in textbox currently
     
     selection = self.tree.selection() # get selection
-    s_item = self.tree.item(selection) # get the item, which has the values the item contains
     
-    if len(s_item['values']) == 0: # if for some reason there are no values attached to the node
-      return None # return None to fail gracefully
+    node_path = self.nodeDir + self.get_node_path(selection) + '.rtf'
     
-    self.openFile = s_item['values'][0] # get the filename from the node
+    self.openFile = node_path
     
     try:
       with open(self.openFile, 'r', encoding='utf-8') as fi:
@@ -172,7 +170,7 @@ class RTFWindow:
   # convert a text selection to RTF
   def convertToRTF(self):
     # if no files are open there is nothing to save
-    if self.openFile == ' ': 
+    if self.openFile == '': 
       tk.messagebox.showerror(title='No open files to save', message='No open files to save')
       return None
     
@@ -218,26 +216,16 @@ class RTFWindow:
   def createNewNode(self):
     sel = self.tree.selection()
     
-    if len(sel) != 0:
-      parent = self.tree.item(sel)
-      path = parent['values'][0][:-4] # remove .rtf
-    else: # default to no nesting
-      path = self.nodeDir
-    
-    # new node is a product of the number of children to keep them varied and prevent overlap
-    newNodeName = f'newNode{len(self.tree.get_children(self.tree.selection()))}'
-    
-    newPath = f'{path}/{newNodeName}'
-    
-    newPath = newPath.replace('//','/') # get rid of trailing slash on roots
+    path = self.nodeDir + self.get_node_path(sel) + '/' + f'newNode{len(self.tree.get_children(sel))}'
+    file_path = path + '.rtf'
     
     # create the new dir to go with the new file
-    os.makedirs(newPath, exist_ok=True)
+    os.makedirs(path, exist_ok=True)
     # create new RTF with basics, just the header
-    with open(newPath + '.rtf', 'w') as fi:
+    with open(file_path, 'w') as fi:
       fi.write(self.RTF_HEADER + '}')
     
-    self.tree.insert(self.tree.selection(), 'end', text=newNodeName, value=newPath+'.rtf')
+    self.tree.insert(sel, 'end', text=newNodeName, value='')
   
   def deleteNode(self):
     parent = self.tree.selection()
@@ -331,17 +319,26 @@ class RTFWindow:
   
   # find the parent of a file relative to the node tree
   # return '' if no parent
-  def find_parent(self, node):
+  def find_parent(self, node, children=None):
     upper_dir = node.split('/')
     
     if len(upper_dir) == 1: # then it is a root
       return ''
     
+    if children == None:
+      children = self.tree.get_children()
+    
     upper_dir = upper_dir[-2]
-    for n in self.tree.get_children():
+    for n in children:
       t_folder = self.tree.item(n)['text']
+      
       if t_folder == upper_dir:
         return n
+    
+    for n in children:
+      next_level = self.find_parent(node, self.tree.get_children(n))
+      if next_level != '':
+        return next_level
     
     return ''
   
@@ -365,52 +362,16 @@ class RTFWindow:
     files = glob.glob(f'{self.nodeDir}**/*.rtf', recursive=True)
     
     files = [x.replace(self.nodeDir, '') for x in files]
-    
-    #self.tree.insert(self.find_parent(files[3]), 'end', text=os.path.basename(files[3]), value='')
-    
-    #print(self.find_parent(files[12]))
-    
-    #self.tree.insert(self.find_parent(files[12]), 'end', text=os.path.basename(files[12]), value='')
-    
+    #print(files)
     for fi in files:
+      #print(fi)
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
     
-    #print(self.tree.item(self.tree.get_children()[3]))
     
     
     #exit(0)
-    '''fi = files[3]
-    
-    no = self.tree.insert('', 'end', text=os.path.basename(fi), value='')
-    
-    #print(self.tree.get_children())
-    
-    fi2 = files[12]
-    parent = self.find_parent(fi2)
-    ni = self.tree.insert(parent, 'end', text=os.path.basename(fi2), value='')'''
-    
-    #print(self.get_node_parent(no) == '')
-    
-    #print(self.get_node_path(ni))
-    
-    #print(ni)
-    #exit(0)
-    
-    #
-    
-    #print(fi2)
-    
-    #for fi in files:
-    #exit(0)
-    #insert_paths = {self.nodeDir[:-1]: ''} # allows objects to be stored for the tree to be built in tkinter
-    '''for fi in files:
-      node_file_only = os.path.basename(fi)
-      nodeName = fi[:-4]
-      insobj = self.tree.insert('', 'end', text=nodeName.split('/')[-1], value=node_file_only)
-      insert_paths[nodeName] = insobj'''
-    
-    #if len(self.tree.get_children()) > 0:
-    #  self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
+    '''if len(self.tree.get_children()) > 0:
+      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree'''
   
   # selects and unselects things on the tree that are clicked on
   def treeSelectUnselect(self, e): # event is used in this one
