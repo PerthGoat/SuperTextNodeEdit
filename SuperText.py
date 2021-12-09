@@ -270,6 +270,8 @@ class RTFWindow:
     if len(node) == 0: # if trying to rename no node
       return None # do not rename, return None
     
+    print(self.tree.item(node))
+    exit(0)
     newWin = tk.Toplevel(self.window)
     entryBox = tk.Entry(newWin)
     entryBox.insert('end', self.openFile[len(self.nodeDir):-4])
@@ -327,18 +329,87 @@ class RTFWindow:
     
     return 'break'
   
+  # find the parent of a file relative to the node tree
+  # return '' if no parent
+  def find_parent(self, node):
+    upper_dir = node.split('/')
+    
+    if len(upper_dir) == 1: # then it is a root
+      return ''
+    
+    upper_dir = upper_dir[-2]
+    for n in self.tree.get_children():
+      t_folder = self.tree.item(n)['text'][:-4]
+      if t_folder == upper_dir:
+        return n
+    
+    return ''
+  
+  # get the parent of a node in a node tree
+  # node->node
+  def get_node_parent(self, node):
+    return self.tree.parent(node)
+  
+  # get the full file path of the node from the node itself
+  def get_node_path(self, node):
+    basepath = self.tree.item(node)['text']
+    while (node := self.get_node_parent(node)) != '':
+      upper_node = self.tree.item(node)['text'][:-4]
+      basepath = upper_node + '/' + basepath
+    
+    return basepath
+  
   # populate node tree with rtf files
   def populateNodeTree(self):
     self.tree.delete(*self.tree.get_children()) # clear current tree
     files = glob.glob(f'{self.nodeDir}**/*.rtf', recursive=True)
-    insert_paths = {self.nodeDir[:-1]: ''} # allows objects to be stored for the tree to be built in tkinter
-    for f in files:
-      nodeName = f[:-4]
-      insobj = self.tree.insert(insert_paths['/'.join(nodeName.split('/')[:-1])], 'end', text=nodeName.split('/')[-1], value=f)
-      insert_paths[nodeName] = insobj
     
-    if len(self.tree.get_children()) > 0:
-      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
+    files = [x.replace(self.nodeDir, '') for x in files]
+    
+    #self.tree.insert(self.find_parent(files[3]), 'end', text=os.path.basename(files[3]), value='')
+    
+    #print(self.find_parent(files[12]))
+    
+    #self.tree.insert(self.find_parent(files[12]), 'end', text=os.path.basename(files[12]), value='')
+    
+    for fi in files:
+      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
+    
+    
+    
+    #exit(0)
+    '''fi = files[3]
+    
+    no = self.tree.insert('', 'end', text=os.path.basename(fi), value='')
+    
+    #print(self.tree.get_children())
+    
+    fi2 = files[12]
+    parent = self.find_parent(fi2)
+    ni = self.tree.insert(parent, 'end', text=os.path.basename(fi2), value='')'''
+    
+    #print(self.get_node_parent(no) == '')
+    
+    #print(self.get_node_path(ni))
+    
+    #print(ni)
+    #exit(0)
+    
+    #
+    
+    #print(fi2)
+    
+    #for fi in files:
+    #exit(0)
+    #insert_paths = {self.nodeDir[:-1]: ''} # allows objects to be stored for the tree to be built in tkinter
+    '''for fi in files:
+      node_file_only = os.path.basename(fi)
+      nodeName = fi[:-4]
+      insobj = self.tree.insert('', 'end', text=nodeName.split('/')[-1], value=node_file_only)
+      insert_paths[nodeName] = insobj'''
+    
+    #if len(self.tree.get_children()) > 0:
+    #  self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
   
   # selects and unselects things on the tree that are clicked on
   def treeSelectUnselect(self, e): # event is used in this one
