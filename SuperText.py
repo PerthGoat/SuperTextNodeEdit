@@ -33,7 +33,7 @@ from iniconfig import INIConfig
 import sys
 
 # for image copying
-from os_specific import clipboard_paste
+from os_specific import Clipboard
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -47,6 +47,9 @@ class RTFWindow:
     self.nodeDir = config_dict['constants']['nodeDir'] # read in directory to hold RTF file tree
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
+    
+    # set up OS specific clipboard for copying images
+    self.clip = Clipboard()
     
     # create main user interface window
     self.createTkinterWindow()
@@ -295,14 +298,16 @@ class RTFWindow:
     
     ibytes = io.BytesIO()
     shifted_img = ImageTk.getimage(self.tkinter_imagelist[0])
-    shifted_img.save(ibytes, 'BMP')
+    shifted_img.save(ibytes, 'DIB')
+    
+    self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
     
     #self.window.clipboard_clear()
-    clipboard_paste(ibytes.getvalue())
+    #clipboard_paste(ibytes.getvalue())
+    
+    
+    
     return 'break'
-    if len(imgs_in_selection) > 0:
-      self.window.clipboard_append('aaa')
-      return 'break'
   
   # populate node tree with rtf files
   def populateNodeTree(self):

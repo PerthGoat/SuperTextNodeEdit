@@ -1,12 +1,10 @@
-import ctypes
-
 # TODO: Add Other Operating Systems for this
 import os
 import tkinter as tk
 import tkinter.messagebox
 
-from PIL import Image
-import io
+#from PIL import Image
+#import io
 
 class Clipboard:
   TEXT = 0x1
@@ -83,11 +81,11 @@ class Clipboard:
   def __macosclipboard(self):
     tk.messagebox.showerror(title='OS Unsupported', message='MacOS is not yet supported for clipboard copy')
 
-im = Image.open(r"")
+'''im = Image.open(r"")
 ibytes = io.BytesIO()
 im.save(ibytes, 'DIB')
 
 by = ibytes.getvalue()
 clip = Clipboard()
 
-clip.set_clipboard(by, clip.BITMAP)
+clip.set_clipboard(by, clip.BITMAP)'''
