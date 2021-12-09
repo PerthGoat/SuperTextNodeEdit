@@ -339,7 +339,7 @@ class RTFWindow:
     
     upper_dir = upper_dir[-2]
     for n in self.tree.get_children():
-      t_folder = self.tree.item(n)['text'][:-4]
+      t_folder = self.tree.item(n)['text']
       if t_folder == upper_dir:
         return n
     
@@ -354,7 +354,7 @@ class RTFWindow:
   def get_node_path(self, node):
     basepath = self.tree.item(node)['text']
     while (node := self.get_node_parent(node)) != '':
-      upper_node = self.tree.item(node)['text'][:-4]
+      upper_node = self.tree.item(node)['text']
       basepath = upper_node + '/' + basepath
     
     return basepath
@@ -373,8 +373,9 @@ class RTFWindow:
     #self.tree.insert(self.find_parent(files[12]), 'end', text=os.path.basename(files[12]), value='')
     
     for fi in files:
-      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
+      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
     
+    #print(self.tree.item(self.tree.get_children()[3]))
     
     
     #exit(0)
