@@ -380,6 +380,8 @@ class RTFWindow:
     
     files = [x.replace(self.nodeDir, '') for x in files]
     
+    sort(files)
+    
     for fi in files:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
     
