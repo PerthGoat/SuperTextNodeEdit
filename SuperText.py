@@ -116,7 +116,12 @@ class RTFWindow:
     
     selection = self.tree.selection() # get selection
     
-    node_path = self.nodeDir + self.get_node_path(selection) + '.rtf'
+    sel_path = self.get_node_path(selection)
+    
+    if sel_path == '':
+      return None
+    
+    node_path = self.nodeDir + sel_path + '.rtf'
     
     self.openFile = node_path
     
@@ -370,8 +375,8 @@ class RTFWindow:
     
     
     #exit(0)
-    '''if len(self.tree.get_children()) > 0:
-      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree'''
+    if len(self.tree.get_children()) > 0:
+      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
   
   # selects and unselects things on the tree that are clicked on
   def treeSelectUnselect(self, e): # event is used in this one
