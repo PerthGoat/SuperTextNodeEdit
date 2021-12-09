@@ -250,32 +250,44 @@ class RTFWindow:
     else:
       pass
   
-  def renameFileAndDir(self, entryBox):
-    folderpath = self.nodeDir + entryBox.get()
+  def renameFileAndDir(self, node, old_path, new_path):
+    shutil.move(self.nodeDir + old_path, self.nodeDir + new_path)
+    shutil.move(self.nodeDir + old_path + '.rtf', self.nodeDir + new_path + '.rtf')
     
-    if not os.path.isdir('/'.join(folderpath.split('/')[:-1])):
-      tk.messagebox.showerror(title='Non-existing tree', message="Can't move node to non-existing tree.")
-      return None
+    # remove the renamed node and its children to regenerate it w/ the new name
     
-    shutil.move(self.openFile[:-4], folderpath)
-    shutil.move(self.openFile, folderpath + '.rtf')
+    # I use deletion because then rename can be used to relocate children to different directories
+    
+    all_children = (children := list(self.tree.get_children(node)))
+    
+    while len(children) > 0:
+      children = [list(self.tree.get_children(x)) for x in children if len(x) > 0]
+      all_children += sum(children, [])
+    
+    new_paths = [new_path] + [self.get_node_path(x).replace(old_path, new_path, 1) for x in all_children]
+    
+    self.tree.delete(*self.tree.get_children(node))
+    self.tree.delete(node)
+    
+    for fi in new_paths:
+      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
+    
   
   def renameNode(self):
     node = self.tree.selection()
     if len(node) == 0: # if trying to rename no node
       return None # do not rename, return None
     
-    print(self.tree.item(node))
-    exit(0)
+    node_path = self.get_node_path(node)
+    
     newWin = tk.Toplevel(self.window)
     entryBox = tk.Entry(newWin)
-    entryBox.insert('end', self.openFile[len(self.nodeDir):-4])
+    entryBox.insert('end', node_path)
     entryBox.pack()
     
     # refreshes because it is easier
     tk.Button(newWin, text='rename', command=lambda: [
-    self.renameFileAndDir(entryBox),
-    self.populateNodeTree(),
+    self.renameFileAndDir(node, node_path, entryBox.get()),
     newWin.destroy()
     ]).pack()
   
