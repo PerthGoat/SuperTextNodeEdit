@@ -221,7 +221,9 @@ class RTFWindow:
   def createNewNode(self):
     sel = self.tree.selection()
     
-    path = self.nodeDir + self.get_node_path(sel) + '/' + f'newNode{len(self.tree.get_children(sel))}'
+    newNodeName = f'newNode{len(self.tree.get_children(sel))}'
+    
+    path = self.nodeDir + self.get_node_path(sel) + '/' + newNodeName
     file_path = path + '.rtf'
     
     # create the new dir to go with the new file
@@ -367,14 +369,10 @@ class RTFWindow:
     files = glob.glob(f'{self.nodeDir}**/*.rtf', recursive=True)
     
     files = [x.replace(self.nodeDir, '') for x in files]
-    #print(files)
+    
     for fi in files:
-      #print(fi)
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
     
-    
-    
-    #exit(0)
     if len(self.tree.get_children()) > 0:
       self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
   
