@@ -340,24 +340,22 @@ class RTFWindow:
   
   # find the parent of a file relative to the node tree
   # return '' if no parent
-  def find_parent(self, node):
-    upper_dir = node.split('/')
+  def find_parent(self, file):
+    # path portion
+    segments = file.split('/')[:-1]
     
-    if len(upper_dir) == 1: # then it is a root
+    if len(segments) == 0:
       return ''
     
-    upper_dir = upper_dir[-2]
+    filename = os.path.basename(file)[:-4]
     
-    children = list(self.tree.get_children())
+    children = dict([[self.tree.item(x)['text'], x] for x in self.tree.get_children()])
     
-    children_builder = [(self.tree.item(x)['text'], x) for x in children]
+    for s in segments:
+      parent = (children := children[s])
+      children = dict([[self.tree.item(x)['text'], x] for x in self.tree.get_children(children)])
     
-    while len(children) > 0:
-      children = sum([list(self.tree.get_children(x)) for x in children], [])
-      children_builder += [(self.tree.item(x)['text'], x) for x in children]
-    
-    children_set = OrderedDict(children_builder)
-    return children_set[upper_dir]
+    return parent
   
   # get the parent of a node in a node tree
   # node->node
@@ -379,8 +377,6 @@ class RTFWindow:
     files = glob.glob(f'{self.nodeDir}**/*.rtf', recursive=True)
     
     files = [x.replace(self.nodeDir, '') for x in files]
-    
-    files.sort()
     
     for fi in files:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
