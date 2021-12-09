@@ -35,6 +35,8 @@ import sys
 # for image copying
 from os_specific import Clipboard
 
+from collections import OrderedDict
+
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
   def __init__(self):
@@ -256,13 +258,13 @@ class RTFWindow:
     
     # remove the renamed node and its children to regenerate it w/ the new name
     
-    # I use deletion because then rename can be used to relocate children to different directories
+    # I use deletion because then rename can be used to relocate children to different node parents
     
     all_children = (children := list(self.tree.get_children(node)))
     
     while len(children) > 0:
-      children = [list(self.tree.get_children(x)) for x in children if len(x) > 0]
-      all_children += sum(children, [])
+      children = sum([list(self.tree.get_children(x)) for x in children if len(x) > 0],[])
+      all_children += children
     
     new_paths = [new_path] + [self.get_node_path(x).replace(old_path, new_path, 1) for x in all_children]
     
@@ -338,28 +340,26 @@ class RTFWindow:
   
   # find the parent of a file relative to the node tree
   # return '' if no parent
-  def find_parent(self, node, children=None):
+  def find_parent(self, node):
     upper_dir = node.split('/')
     
     if len(upper_dir) == 1: # then it is a root
       return ''
     
-    if children == None:
-      children = self.tree.get_children()
-    
     upper_dir = upper_dir[-2]
-    for n in children:
-      t_folder = self.tree.item(n)['text']
-      
-      if t_folder == upper_dir:
-        return n
     
-    for n in children:
-      next_level = self.find_parent(node, self.tree.get_children(n))
-      if next_level != '':
-        return next_level
+    children = list(self.tree.get_children())
     
-    return ''
+    children_builder = [(self.tree.item(x)['text'], x) for x in children]
+    
+    while len(children) > 0:
+      children = sum([list(self.tree.get_children(x)) for x in children], [])
+      children_builder += [(self.tree.item(x)['text'], x) for x in children]
+    
+    children_builder.reverse()
+    
+    children_set = OrderedDict(children_builder)
+    return children_set[upper_dir]
   
   # get the parent of a node in a node tree
   # node->node
