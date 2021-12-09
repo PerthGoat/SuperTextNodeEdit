@@ -356,8 +356,6 @@ class RTFWindow:
       children = sum([list(self.tree.get_children(x)) for x in children], [])
       children_builder += [(self.tree.item(x)['text'], x) for x in children]
     
-    children_builder.reverse()
-    
     children_set = OrderedDict(children_builder)
     return children_set[upper_dir]
   
