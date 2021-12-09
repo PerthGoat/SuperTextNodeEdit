@@ -169,8 +169,8 @@ class RTFWindow:
       else: # nuclear mode, put out whatever got read to parse as best as possible
         self.text.insert('end', r)
   
-  # save an RTF file that is open
-  def saveRTF(self):
+  # convert a text selection to RTF
+  def convertToRTF(self):
     # if no files are open there is nothing to save
     if self.openFile == ' ': 
       tk.messagebox.showerror(title='No open files to save', message='No open files to save')
@@ -205,6 +205,11 @@ class RTFWindow:
     data = data.strip() # this is cleaner to remove extra whitespace
     data += '}'
     
+    return data
+  
+  # save an RTF file that is open
+  def saveRTF(self):
+    data = self.convertToRTF()
     with open(self.openFile, 'w', encoding='utf-8') as fi:
       fi.write(data)
     
@@ -293,14 +298,18 @@ class RTFWindow:
     
     selected_text = self.text.dump(sel_start, sel_end)
     
-    text_in_selection = [x for x in selected_text if 'text' in x]
+    text_in_selection = [x[1] for x in selected_text if 'text' in x]
     imgs_in_selection = [x for x in selected_text if 'image' in x]
     
     ibytes = io.BytesIO()
     shifted_img = ImageTk.getimage(self.tkinter_imagelist[0])
     shifted_img.save(ibytes, 'DIB')
     
+    self.clip.open_clipboard()
+    self.clip.set_clipboard(self.convertToRTF().encode('utf-8'), self.clip.RTF)
     self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
+    self.clip.set_clipboard(' '.join(text_in_selection).encode('utf-8'), self.clip.TEXT)
+    self.clip.close_clipboard()
     
     #self.window.clipboard_clear()
     #clipboard_paste(ibytes.getvalue())

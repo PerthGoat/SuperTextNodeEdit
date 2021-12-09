@@ -2,6 +2,7 @@
 import os
 import tkinter as tk
 import tkinter.messagebox
+import importlib
 
 #from PIL import Image
 #import io
@@ -9,20 +10,33 @@ import tkinter.messagebox
 class Clipboard:
   TEXT = 0x1
   BITMAP = 0x8
+  RTF=0x99
   def __init__(self):
     platforms = {
-      'nt': self.__winclipboard,
-      'posix': self.__linuxclipboard,
-      'darwin': self.__macosclipboard
+      'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, (lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()],
+      'posix': [self.__linuxclipboard, None, None],
+      'darwin': [self.__macosclipboard, None, None]
     }
+    #print(globals)
+    platform_specific = platforms[os.name]
     
-    self.set_clipboard = platforms[os.name]
+    self.set_clipboard = platform_specific[0]
+    self.open_clipboard = platform_specific[1]
+    self.close_clipboard = platform_specific[2]
+  
+  def __winopenclipboard(self):
+    OpenClipboard = ctypes.windll.user32.OpenClipboard
+    EmptyClipboard = ctypes.windll.user32.EmptyClipboard
+    OpenClipboard(None)
+    EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
+  
+  def __wincloseclipboard(self):
+    CloseClipboard = ctypes.windll.user32.CloseClipboard
+    CloseClipboard() # close the clipboard handle
   
   # takes data in bytes
   def __winclipboard(self, data, data_type):
-    # imports for windows
-    import ctypes
-    import ctypes.wintypes
+  
     if type(data) != type(b''): # make sure data contains only bytes
       tk.messagebox.showerror(title='Wrong data', message=f'Need to be passed bytes for clipboard, not type {type(data)}')
     
@@ -44,16 +58,23 @@ class Clipboard:
     GlobalFree = ctypes.windll.kernel32.GlobalFree
     GlobalFree.argtypes = [ctypes.wintypes.HGLOBAL]
     
-    OpenClipboard = ctypes.windll.user32.OpenClipboard
-    CloseClipboard = ctypes.windll.user32.CloseClipboard
     SetClipboardData = ctypes.windll.user32.SetClipboardData
     SetClipboardData.argtypes = [ctypes.wintypes.UINT, ctypes.wintypes.HANDLE]
+    
+    RegisterClipboardFormatA = ctypes.windll.user32.RegisterClipboardFormatA
+    RegisterClipboardFormatA.argtypes = [ctypes.c_char_p]
+    RegisterClipboardFormatA.restype = ctypes.wintypes.UINT
     
     memcpy = ctypes.cdll.msvcrt.memcpy
     memcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
     
-    EmptyClipboard = ctypes.windll.user32.EmptyClipboard
     # end win32 functions
+    
+    if data_type == self.RTF:
+    # set up RTF format
+      rich_format = ctypes.c_char_p(b'Rich Text Format')
+      rich_format_id = RegisterClipboardFormatA(rich_format)
+      data_type = rich_format_id
     
     # start clipboard copy code
     data_char_pointer = ctypes.c_char_p(data) # convert data to a C char*
@@ -67,10 +88,9 @@ class Clipboard:
     GlobalUnlock(hMem) # unlock the heap for the clipboard
     
     # open clipboard, None means current app
-    OpenClipboard(None)
-    EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
-    SetClipboardData(data_type, hMem) # Device-independent bitmap
-    CloseClipboard() # close the clipboard handle
+    #OpenClipboard(None)
+    #EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
+    SetClipboardData(data_type, hMem) # RTF
     
     GlobalFree(hMem)
     # end clipboard copy code
