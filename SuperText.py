@@ -229,6 +229,8 @@ class RTFWindow:
     
     newPath = f'{path}/{newNodeName}'
     
+    newPath = newPath.replace('//','/') # get rid of trailing slash on roots
+    
     # create the new dir to go with the new file
     os.makedirs(newPath, exist_ok=True)
     # create new RTF with basics, just the header
