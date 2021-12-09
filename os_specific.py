@@ -5,8 +5,12 @@ import os
 import tkinter as tk
 import tkinter.messagebox
 
+from PIL import Image
+import io
 
 class Clipboard:
+  TEXT = 0x1
+  BITMAP = 0x8
   def __init__(self):
     platforms = {
       'nt': self.__winclipboard,
@@ -17,7 +21,7 @@ class Clipboard:
     self.set_clipboard = platforms[os.name]
   
   # takes data in bytes
-  def __winclipboard(self, data):
+  def __winclipboard(self, data, data_type):
     # imports for windows
     import ctypes
     import ctypes.wintypes
@@ -38,6 +42,9 @@ class Clipboard:
 
     GlobalUnlock = ctypes.windll.kernel32.GlobalUnlock
     GlobalUnlock.argtypes = [ctypes.wintypes.HGLOBAL]
+    
+    GlobalFree = ctypes.windll.kernel32.GlobalFree
+    GlobalFree.argtypes = [ctypes.wintypes.HGLOBAL]
     
     OpenClipboard = ctypes.windll.user32.OpenClipboard
     CloseClipboard = ctypes.windll.user32.CloseClipboard
@@ -64,9 +71,10 @@ class Clipboard:
     # open clipboard, None means current app
     OpenClipboard(None)
     EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
-    SetClipboardData(1, hMem) # set the data to the heap pointer
+    SetClipboardData(data_type, hMem) # Device-independent bitmap
     CloseClipboard() # close the clipboard handle
     
+    GlobalFree(hMem)
     # end clipboard copy code
   
   def __linuxclipboard(self):
@@ -75,7 +83,11 @@ class Clipboard:
   def __macosclipboard(self):
     tk.messagebox.showerror(title='OS Unsupported', message='MacOS is not yet supported for clipboard copy')
 
+im = Image.open(r"")
+ibytes = io.BytesIO()
+im.save(ibytes, 'DIB')
 
+by = ibytes.getvalue()
 clip = Clipboard()
 
-clip.set_clipboard(b"Hello")
+clip.set_clipboard(by, clip.BITMAP)
