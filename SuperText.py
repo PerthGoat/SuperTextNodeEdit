@@ -238,10 +238,8 @@ class RTFWindow:
   
   def deleteNode(self):
     parent = self.tree.selection()
-    parentItem = self.tree.item(parent)
-    path = parentItem['values'][0][:-4]
-    
-    result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {parentItem["text"]}?')
+    path = self.nodeDir + self.get_node_path(parent)
+    result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
     
     if result == 'yes':
       self.tree.delete(*self.tree.get_children(parent))
