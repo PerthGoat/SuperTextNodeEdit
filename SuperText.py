@@ -205,7 +205,7 @@ class RTFWindow:
         shifted_img.save(ibytes, 'PNG')
         data += r'{\pict\pngblip ' + ibytes.getvalue().hex() + '}'
       elif t[0] == 'text':
-        data += t[1].replace('\n', r'{\par }')
+        data += t[1].replace('\\', '\\\\').replace('{', '\{').replace('}', '\}').replace('\n', r'{\par }') # escape backslash and curly brace
     
     data = data.strip() # this is cleaner to remove extra whitespace
     data += '}'

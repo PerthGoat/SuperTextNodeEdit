@@ -65,7 +65,9 @@ class RTFParser:
         i += 1 # advance past the backslash
         fulltoken = self.getFullWord(self.rtf[i:]) # read in the following word, stopping at a space, block character, or backslash
         i += len(fulltoken) # advance i past the word
-        if self.rtf[i] == ' ': # if a space is encountered, skip it too
+        if self.rtf[i] == ' ' or (len(fulltoken) == 0 and (self.tokenstart(self.rtf[i]) or self.blockstart(self.rtf[i]) or self.blockend(self.rtf[i]))): # if a space is encountered, skip it too
+          if self.rtf[i] != ' ': # then it is an escaped special character
+            fulltoken = self.rtf[i]
           i += 1
         
         rtf_token += [fulltoken] # add the token to the rtf_token list
