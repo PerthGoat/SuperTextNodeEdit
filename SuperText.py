@@ -309,7 +309,7 @@ class RTFWindow:
     
     selected_text = self.text.dump(sel_start, sel_end)
     
-    #text_in_selection = [x[1] for x in selected_text if 'text' in x]
+    text_in_selection = [x[1] for x in selected_text if 'text' in x]
     imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
     
     ibytes = io.BytesIO()
@@ -317,7 +317,7 @@ class RTFWindow:
     #shifted_img.save(ibytes, 'DIB')
     
     self.clip.open_clipboard()
-    self.clip.set_clipboard(self.convertToRTF().encode('utf-16'), self.clip.RTF)
+    self.clip.set_clipboard(self.convertToRTF().encode('utf-8'), self.clip.RTF)
     # write first image in selection to clipboard under the special BITMAP thing
     # just to have something
     for tkimg in self.tkinter_imagelist:
@@ -326,13 +326,13 @@ class RTFWindow:
         self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
         break
     
-    #self.clip.set_clipboard(' '.join(text_in_selection).encode('utf-16'), self.clip.TEXT)
+    self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.TEXT)
     self.clip.close_clipboard()
     
     #self.window.clipboard_clear()
     #clipboard_paste(ibytes.getvalue())
     
-    #return 'break'
+    return 'break'
   
   # find the parent of a file relative to the node tree
   # return '' if no parent
