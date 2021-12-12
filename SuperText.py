@@ -309,7 +309,7 @@ class RTFWindow:
     
     selected_text = self.text.dump(sel_start, sel_end)
     
-    text_in_selection = [x[1] for x in selected_text if 'text' in x]
+    #text_in_selection = [x[1] for x in selected_text if 'text' in x]
     imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
     
     ibytes = io.BytesIO()
