@@ -326,15 +326,13 @@ class RTFWindow:
         self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
         break
     
-    self.clip.set_clipboard(' '.join(text_in_selection).encode('utf-16'), self.clip.TEXT)
+    #self.clip.set_clipboard(' '.join(text_in_selection).encode('utf-16'), self.clip.TEXT)
     self.clip.close_clipboard()
     
     #self.window.clipboard_clear()
     #clipboard_paste(ibytes.getvalue())
     
-    
-    
-    return 'break'
+    #return 'break'
   
   # find the parent of a file relative to the node tree
   # return '' if no parent
