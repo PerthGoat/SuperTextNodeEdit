@@ -337,7 +337,7 @@ class RTFWindow:
     
     try:
       self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
-    except UnicodeDecodeError:
+    except UnicodeEncodeError:
       self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
     
     self.clip.close_clipboard()
