@@ -8,7 +8,8 @@ import importlib
 #import io
 
 class Clipboard:
-  TEXT = 13 # windows clipboard likes this
+  TEXT = 1 # normal text
+  UNITEXT = 13 # windows clipboard likes this
   BITMAP = 0x8
   RTF=0x99
   def __init__(self):

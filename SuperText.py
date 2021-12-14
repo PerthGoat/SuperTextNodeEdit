@@ -171,6 +171,12 @@ class RTFWindow:
             pass # either way don't crash, try to keep parsing
           else:
             self.text.insert('end', r[1]) # print out the text defined in the paragraph block
+      elif r[0] == 'u': # unicode escapes stand alone without a block
+        uend = r.index('?') # end of unicode char literal in RTF is marked by ?
+        unicode_char = chr(int(r[1:uend]))
+        self.text.insert('end', unicode_char)
+        
+        self.text.insert('end', r[uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
       else: # nuclear mode, put out whatever got read to parse as best as possible
         self.text.insert('end', r)
   
@@ -205,7 +211,10 @@ class RTFWindow:
         shifted_img.save(ibytes, 'PNG')
         data += r'{\pict\pngblip ' + ibytes.getvalue().hex() + '}'
       elif t[0] == 'text':
-        data += t[1].replace('\\', '\\\\').replace('{', '\{').replace('}', '\}').replace('\n', r'{\par }') # escape backslash and curly brace
+        txt = t[1]
+        txt = txt.replace('\\', '\\\\').replace('{', '\{').replace('}', '\}').replace('\n', r'{\par }') # escape backslash and curly brace
+        txt = ''.join([fr"\u{ord(c):04d}?" if ord(c) > 0x7F else c for c in txt]) # if non ASCII, then encode the character for RTF
+        data += txt
     
     data = data.strip() # this is cleaner to remove extra whitespace
     data += '}'
@@ -326,7 +335,11 @@ class RTFWindow:
         self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
         break
     
-    self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.TEXT)
+    try:
+      self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
+    except UnicodeDecodeError:
+      self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
+    
     self.clip.close_clipboard()
     
     #self.window.clipboard_clear()
