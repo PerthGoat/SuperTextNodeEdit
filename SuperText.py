@@ -135,7 +135,7 @@ class RTFWindow:
         data = fi.read()
     # parse the RTF using the RTF parser
     rt = RTFParser(data).parse()
-    print(rt)
+    #print(rt)
     # verify the header matches the expected for an RTF that this program can read
     assert rt[0] == 'rtf1'
     assert rt[1] == 'ansi'
