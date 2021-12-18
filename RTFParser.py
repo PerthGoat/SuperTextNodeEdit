@@ -71,6 +71,9 @@ class RTFParser:
           if fulltoken[0] != 'u': # look for unicode escape to not kill spaces following it
             i += 1
         
+        if fulltoken[0] == 'u':
+          fulltoken = [fulltoken]
+        
         rtf_token += [fulltoken] # add the token to the rtf_token list
       elif self.blockend(c): # if '}' blockend encountered
         return (rtf_token, i+1) # return the tokenlist alongside how far to advance i for the caller

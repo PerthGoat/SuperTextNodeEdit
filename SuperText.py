@@ -135,7 +135,7 @@ class RTFWindow:
         data = fi.read()
     # parse the RTF using the RTF parser
     rt = RTFParser(data).parse()
-    
+    print(rt)
     # verify the header matches the expected for an RTF that this program can read
     assert rt[0] == 'rtf1'
     assert rt[1] == 'ansi'
@@ -171,12 +171,11 @@ class RTFWindow:
             pass # either way don't crash, try to keep parsing
           else:
             self.text.insert('end', r[1]) # print out the text defined in the paragraph block
-      elif r[0] == 'u': # unicode escapes stand alone without a block
-        uend = r.index('?') # end of unicode char literal in RTF is marked by ?
-        unicode_char = chr(int(r[1:uend]))
-        self.text.insert('end', unicode_char)
-        
-        self.text.insert('end', r[uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
+        elif r[0][0] == 'u': # unicode escapes stand alone without a block
+          uend = r[0].index('?') # end of unicode char literal in RTF is marked by ?
+          unicode_char = chr(int(r[0][1:uend]))
+          self.text.insert('end', unicode_char)
+          self.text.insert('end', r[uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
       else: # nuclear mode, put out whatever got read to parse as best as possible
         self.text.insert('end', r)
   
