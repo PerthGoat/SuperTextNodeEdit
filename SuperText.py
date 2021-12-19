@@ -175,7 +175,7 @@ class RTFWindow:
           uend = r[0].index('?') # end of unicode char literal in RTF is marked by ?
           unicode_char = chr(int(r[0][1:uend]))
           self.text.insert('end', unicode_char)
-          self.text.insert('end', r[uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
+          self.text.insert('end', r[0][uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
       else: # nuclear mode, put out whatever got read to parse as best as possible
         self.text.insert('end', r)
   
