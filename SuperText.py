@@ -311,8 +311,9 @@ class RTFWindow:
     self.text.image_create('insert', image=self.tkinter_imagelist[-1])
   
   def copyFromClipboard(self, event):
-    #print('copy')
-    #print(event)
+    if not self.text.tag_ranges('sel'):
+      return None
+    
     sel_start = self.text.index('sel.first')
     sel_end = self.text.index('sel.last')
     

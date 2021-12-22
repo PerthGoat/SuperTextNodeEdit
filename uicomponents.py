@@ -34,3 +34,4 @@ class ScrollableText(tk.Frame):
     self.bind = text.bind
     self.image_create = text.image_create
     self.index = text.index
+    self.tag_ranges = text.tag_ranges
