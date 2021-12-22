@@ -280,6 +280,7 @@ class RTFWindow:
     for fi in new_paths:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
     
+    self.tree.selection_set(self.find_self(new_paths[0]))
   
   def renameNode(self):
     node = self.tree.selection()
@@ -346,11 +347,10 @@ class RTFWindow:
     
     return 'break'
   
-  # find the parent of a file relative to the node tree
-  # return '' if no parent
-  def find_parent(self, file):
+  # find the node with the path specified
+  def find_self(self, file):
     # path portion
-    segments = file.split('/')[:-1]
+    segments = file.split('/')
     
     if len(segments) == 0:
       return ''
@@ -364,6 +364,17 @@ class RTFWindow:
       children = dict([[self.tree.item(x)['text'], x] for x in self.tree.get_children(children)])
     
     return parent
+  
+  # find the parent of a file relative to the node tree
+  # return '' if no parent
+  def find_parent(self, file):
+    # path portion
+    segments = file.split('/')[:-1]
+    
+    if len(segments) == 0:
+      return ''
+    
+    return self.find_self('/'.join(segments))
   
   # get the parent of a node in a node tree
   # node->node
