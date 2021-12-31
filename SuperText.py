@@ -306,6 +306,14 @@ class RTFWindow:
     if clipimg == None: # if no image on clipboard, ignore
       return None
     
+    if type(clipimg) == list:
+      for img in clipimg:
+        self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
+    
+        self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+      
+      return None
+    
     self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
     
     self.text.image_create('insert', image=self.tkinter_imagelist[-1])
