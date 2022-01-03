@@ -14,7 +14,7 @@ class Clipboard:
   RTF=0x99
   def __init__(self):
     platforms = {
-      'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, (lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()],
+      'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, lambda : [(lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()]],
       'posix': [self.__linuxclipboard, None, None],
       'darwin': [self.__macosclipboard, None, None]
     }
@@ -24,6 +24,8 @@ class Clipboard:
     self.set_clipboard = platform_specific[0]
     self.open_clipboard = platform_specific[1]
     self.close_clipboard = platform_specific[2]
+    # do imports
+    platform_specific[3]()
   
   def __winopenclipboard(self):
     OpenClipboard = ctypes.windll.user32.OpenClipboard
