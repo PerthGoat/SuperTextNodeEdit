@@ -1,5 +1,6 @@
 
 import tkinter as tk
+from tkinter import ttk
 
 # This class exists to create a scrollable text object
 # which is just a multi-line text box with a scrollbar taped to it
@@ -16,7 +17,7 @@ class ScrollableText(tk.Frame):
     self.grid_columnconfigure(0, weight=1)
     
     # pass styling arguments to the text
-    text = tk.Text(self, kwargs, wrap='word')
+    text = tk.Text(self, **kwargs, wrap='word')
     text.grid(row=0, column=0, sticky='nsew') # fill available space with text
     
     # set up scrollbar to scroll the text area
@@ -35,3 +36,26 @@ class ScrollableText(tk.Frame):
     self.image_create = text.image_create
     self.index = text.index
     self.tag_ranges = text.tag_ranges
+
+# Scrollable treeview, to add horizontal and vertical scrolling to the tree view
+class ScrollableTreeView(tk.Frame):
+  def __init__(self, parent, **kwargs):
+    super().__init__(parent)
+    tree = ttk.Treeview(self, **kwargs)
+    #tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
+    tree.pack(fill='both', expand=True)
+    #tree.heading('#0', text='Nodes') # set the default heading name and width
+    #tree.column('#0', width=200)
+    
+    self.heading = tree.heading
+    self.column = tree.column
+    self.bind = tree.bind
+    self.delete = tree.delete
+    self.get_children = tree.get_children
+    self.insert = tree.insert
+    self.item = tree.item
+    self.selection_set = tree.selection_set
+    self.selection = tree.selection
+    self.parent = tree.parent
+    self.identify = tree.identify
+    self.selection_remove = tree.selection_remove

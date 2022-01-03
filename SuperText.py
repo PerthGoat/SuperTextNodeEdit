@@ -23,7 +23,7 @@ from PIL import Image, ImageTk, ImageGrab
 
 # user defined functions
 # scrollable textboxes
-from uicomponents import ScrollableText
+from uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from RTFParser import RTFParser
 # ini parsing
@@ -81,7 +81,7 @@ class RTFWindow:
     tk.Button(buttonFrame, text='delete', command=self.deleteNode).pack(side='left')
     
     # browse is used because multiselect is hard, and this works fine for a tree-based text editor
-    self.tree = ttk.Treeview(treeFrame, selectmode='browse')
+    self.tree = ScrollableTreeView(treeFrame, selectmode='browse')
     self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
     self.tree.heading('#0', text='Nodes') # set the default heading name and width
     self.tree.column('#0', width=200)
