@@ -40,12 +40,25 @@ class ScrollableText(tk.Frame):
 # Scrollable treeview, to add horizontal and vertical scrolling to the tree view
 class ScrollableTreeView(tk.Frame):
   def __init__(self, parent, **kwargs):
+    # initalize this object to have the same properties as an
+    # initalized tk.Frame
+    # and initialize the frame with respect to the parent tkinter object
     super().__init__(parent)
+    
+    # needed for proper reactive UI resizing
+    self.grid_rowconfigure(0, weight=1)
+    self.grid_columnconfigure(1, weight=1)
+    
     tree = ttk.Treeview(self, **kwargs)
     #tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
-    tree.pack(fill='both', expand=True)
+    tree.grid(row=0, column=1, sticky='nsew')
     #tree.heading('#0', text='Nodes') # set the default heading name and width
     #tree.column('#0', width=200)
+    
+    # set up scrollbar to scroll the treeview
+    scrolly = tk.Scrollbar(self, command=tree.yview)
+    scrolly.grid(row=0, column=0, sticky='nsw') # won't auto-expand because column isn't configured with a weight
+    tree.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
     
     self.heading = tree.heading
     self.column = tree.column
