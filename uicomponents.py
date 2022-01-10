@@ -72,3 +72,4 @@ class ScrollableTreeView(tk.Frame):
     self.parent = tree.parent
     self.identify = tree.identify
     self.selection_remove = tree.selection_remove
+    self.configure = tree.configure

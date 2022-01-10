@@ -64,6 +64,8 @@ class RTFWindow:
     self.window.grid_columnconfigure(1, weight=1) # for responsive-resize
     self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
     
+    self.tkinter_font = tk.font.Font(family='Consolas', size=12)
+    
     # window design goes here
     
     # first the file tree
@@ -81,10 +83,13 @@ class RTFWindow:
     tk.Button(buttonFrame, text='delete', command=self.deleteNode).pack(side='left')
     
     # browse is used because multiselect is hard, and this works fine for a tree-based text editor
+    
+    ttk.Style().configure('Treeview', font=self.tkinter_font)
+    
     self.tree = ScrollableTreeView(treeFrame, selectmode='browse')
     self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
     self.tree.heading('#0', text='Nodes') # set the default heading name and width
-    self.tree.column('#0', width=200)
+    self.tree.column('#0', minwidth=200, stretch=False)
     
     # selecting a nodfe will load it from a source file
     self.tree.bind('<<TreeviewSelect>>', self.tryReadShowRTF)
@@ -101,7 +106,7 @@ class RTFWindow:
     # control bar is here, only save button for now
     tk.Button(textFrame, text='save', command=self.saveRTF).pack()
     
-    self.text = ScrollableText(textFrame, font=tk.font.Font(family='Consolas', size=12))
+    self.text = ScrollableText(textFrame, font=self.tkinter_font)
     self.text.pack(fill='both', expand='True') # text fills entire remaining space
     
     self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
@@ -122,6 +127,26 @@ class RTFWindow:
     
     if sel_path == '':
       return None
+    
+    #self.tree.column('#0', width=self.tkinter_font.measure(sel_path))
+    
+    split_parts = sel_path.split('/')
+    cur_name = split_parts[-1]
+    split_parts = split_parts[:-1]
+    
+    tree_item_padding = (len(split_parts) + 1) * 20
+    
+    the_w = self.tkinter_font.measure(cur_name) + tree_item_padding + 5
+    
+    ttk.Style().configure('Treeview', width=the_w)
+    
+    self.tree.column('#0', width=the_w)
+    
+    #print(self.tree.xview())
+    
+    #self.tree.configure(width=self.tkinter_font.measure(sel_path))
+    
+    self.tree.event_generate("<<ThemeChanged>>")
     
     node_path = self.nodeDir + sel_path + '.rtf'
     
