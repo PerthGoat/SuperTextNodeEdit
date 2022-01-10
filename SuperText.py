@@ -84,20 +84,20 @@ class RTFWindow:
     
     # browse is used because multiselect is hard, and this works fine for a tree-based text editor
     
-    ttk.Style().configure('Treeview', font=self.tkinter_font)
+    ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
     
     self.tree = ScrollableTreeView(treeFrame, width=230, selectmode='browse')
     self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
     self.tree.heading('#0', text='Nodes') # set the default heading name and width
     self.tree.column('#0', anchor='w')
     
-    # selecting a nodfe will load it from a source file
+    # selecting a node will load it from a source file
     self.tree.bind('<<TreeviewSelect>>', self.tryReadShowRTF)
     
     # double click toggles selection on and off, to allow for making new root nodes
     self.tree.bind('<Double-1>', self.treeSelectUnselect)
     
-    # bind open and close for the horizontal scroll adjust
+    # bind a second callback for horizontal scroll adjustment
     self.tree.bind('<<TreeviewSelect>>', self.treeOpenClose, add='+')
     
     # end file tree
@@ -125,10 +125,12 @@ class RTFWindow:
     split_parts = self.get_node_path(node).split('/')
     cur_name = split_parts[-1]
     split_parts = split_parts[:-1]
-    tree_item_padding = (len(split_parts) + 1) * 20
-    item_width = self.tkinter_font.measure(cur_name) + tree_item_padding + 5
+    tree_item_padding = (len(split_parts) + 1) * 20 # I use 20 here because tkinter arbitrarily choses that as the padding for the treeview
+    item_width = self.tkinter_font.measure(cur_name) + tree_item_padding + 5 # 5 is to give the scrollbar more breathing room
     return item_width
   
+  # go through the entire tree, finding the longest element in it
+  # only recurse in "open" entries of the treeview, which will also save performance
   def visit_whole_tree(self, node):
     biggest_width = self.getNodePathLength(node)
     
@@ -146,7 +148,9 @@ class RTFWindow:
   
   def treeOpenClose(self, event):
     biggest_node_width = self.visit_whole_tree('')
-    
+    # set the treeview tree column to the width of the biggest entry
+    # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
+    # which gives a horizontal scrollbar
     self.tree.column('#0', width=biggest_node_width, stretch=False)
     
   def tryReadShowRTF(self, event): # event is not used
