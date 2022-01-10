@@ -114,6 +114,7 @@ class RTFWindow:
     
     self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
     self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
+    #self.text.bind('<Control-x>', self.copyFromClipboard) # bound to enable clipboard rich cutting
     
     # end textarea
     
@@ -220,7 +221,8 @@ class RTFWindow:
         self.text.insert('end', r)
   
   # convert a text selection to RTF
-  def convertToRTF(self):
+  # start to finish of selection
+  def convertToRTF(self, start, finish):
     # if no files are open there is nothing to save
     if self.openFile == '': 
       tk.messagebox.showerror(title='No open files to save', message='No open files to save')
@@ -231,7 +233,7 @@ class RTFWindow:
     
     # get the text contents including images
     # tkinter proves "dump" for this
-    textContents = self.text.dump('1.0', 'end')
+    textContents = self.text.dump(start, finish)
     
     # if there is a trailing newline, remove it
     # tkinter sometimes randomly adds a newline to the text dump
@@ -262,7 +264,7 @@ class RTFWindow:
   
   # save an RTF file that is open
   def saveRTF(self):
-    data = self.convertToRTF()
+    data = self.convertToRTF('1.0', 'end')
     with open(self.openFile, 'w', encoding='utf-8') as fi:
       fi.write(data)
     
@@ -375,7 +377,7 @@ class RTFWindow:
     #shifted_img.save(ibytes, 'DIB')
     
     self.clip.open_clipboard()
-    self.clip.set_clipboard(self.convertToRTF().encode('utf-8'), self.clip.RTF)
+    self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF)
     # write first image in selection to clipboard under the special BITMAP thing
     # just to have something
     for tkimg in self.tkinter_imagelist:
