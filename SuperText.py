@@ -86,16 +86,19 @@ class RTFWindow:
     
     ttk.Style().configure('Treeview', font=self.tkinter_font)
     
-    self.tree = ScrollableTreeView(treeFrame, selectmode='browse')
+    self.tree = ScrollableTreeView(treeFrame, width=230, selectmode='browse')
     self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
     self.tree.heading('#0', text='Nodes') # set the default heading name and width
-    self.tree.column('#0', minwidth=200, stretch=False)
+    self.tree.column('#0', anchor='w')
     
     # selecting a nodfe will load it from a source file
     self.tree.bind('<<TreeviewSelect>>', self.tryReadShowRTF)
     
     # double click toggles selection on and off, to allow for making new root nodes
     self.tree.bind('<Double-1>', self.treeSelectUnselect)
+    
+    # bind open and close for the horizontal scroll adjust
+    self.tree.bind('<<TreeviewSelect>>', self.treeOpenClose, add='+')
     
     # end file tree
     
@@ -118,6 +121,34 @@ class RTFWindow:
     
     self.window.mainloop()
   
+  def getNodePathLength(self, node):
+    split_parts = self.get_node_path(node).split('/')
+    cur_name = split_parts[-1]
+    split_parts = split_parts[:-1]
+    tree_item_padding = (len(split_parts) + 1) * 20
+    item_width = self.tkinter_font.measure(cur_name) + tree_item_padding + 5
+    return item_width
+  
+  def visit_whole_tree(self, node):
+    biggest_width = self.getNodePathLength(node)
+    
+    for n in self.tree.get_children(node):
+      if self.tree.item(n, 'open'):
+        biggest_child_width = self.visit_whole_tree(n)
+        if biggest_width < biggest_child_width:
+          biggest_width = biggest_child_width
+      else:
+        item_width = self.getNodePathLength(n)
+        if biggest_width < item_width:
+          biggest_width = item_width
+    
+    return biggest_width
+  
+  def treeOpenClose(self, event):
+    biggest_node_width = self.visit_whole_tree('')
+    
+    self.tree.column('#0', width=biggest_node_width, stretch=False)
+    
   def tryReadShowRTF(self, event): # event is not used
     self.text.delete('1.0', 'end') # delete all text in textbox currently
     
@@ -127,26 +158,6 @@ class RTFWindow:
     
     if sel_path == '':
       return None
-    
-    #self.tree.column('#0', width=self.tkinter_font.measure(sel_path))
-    
-    split_parts = sel_path.split('/')
-    cur_name = split_parts[-1]
-    split_parts = split_parts[:-1]
-    
-    tree_item_padding = (len(split_parts) + 1) * 20
-    
-    the_w = self.tkinter_font.measure(cur_name) + tree_item_padding + 5
-    
-    ttk.Style().configure('Treeview', width=the_w)
-    
-    self.tree.column('#0', width=the_w)
-    
-    #print(self.tree.xview())
-    
-    #self.tree.configure(width=self.tkinter_font.measure(sel_path))
-    
-    self.tree.event_generate("<<ThemeChanged>>")
     
     node_path = self.nodeDir + sel_path + '.rtf'
     
