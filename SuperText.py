@@ -114,7 +114,8 @@ class RTFWindow:
     
     self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
     self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
-    #self.text.bind('<Control-x>', self.copyFromClipboard) # bound to enable clipboard rich cutting
+    
+    self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))]) # bound to enable clipboard rich cutting
     
     # end textarea
     
