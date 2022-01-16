@@ -1,6 +1,9 @@
 # SuperTextNodeEdit
 An epic text editor written in pure Python + Tkinter, saving via the rich text format.
 
+# Warning:
+```This project is still early in development and may have bugs causing data loss, loss of compatibility with old files, introduced compatability issues with MSWORD wordpad.exe etc, and I don't recommend putting anything important in here (yet), especially if you aren't regularly backing up the RTF files somewhere else.```
+
 ## What does this offer?
 The design is loosely inspired by MemPad (https://www.horstmuc.de/wmem.htm) and CherryTree
 
