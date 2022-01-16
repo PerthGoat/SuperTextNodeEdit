@@ -50,6 +50,9 @@ class RTFWindow:
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
     
+    # track if a UI popup is open or not to prevent spawning multiple windows
+    self.UI_popup = None
+    
     # set up OS specific clipboard for copying images
     self.clip = Clipboard()
     
@@ -325,14 +328,20 @@ class RTFWindow:
     
     self.tree.selection_set(self.find_self(new_paths[0]))
   
+  def killUIPopup(self):
+    self.UI_popup.destroy()
+    self.UI_popup = None
+  
   def renameNode(self):
     node = self.tree.selection()
-    if len(node) == 0: # if trying to rename no node
+    if len(node) == 0 or self.UI_popup != None: # if trying to rename no node
+      if self.UI_popup != None:
+        self.UI_popup.lift()
       return None # do not rename, return None
     
     node_path = self.get_node_path(node)
     
-    newWin = tk.Toplevel(self.window)
+    self.UI_popup = (newWin := tk.Toplevel(self.window))
     newWin.geometry('200x100')
     newWin.resizable(False, False)
     entryBox = tk.Entry(newWin)
@@ -341,7 +350,7 @@ class RTFWindow:
     
     tk.Button(newWin, text='rename', command=lambda: [
     self.renameFileAndDir(node, node_path, entryBox.get()),
-    newWin.destroy()
+    self.killUIPopup()
     ]).place(x=100, y=65, anchor='center')
   
   def pasteFromClipboard(self, event):
