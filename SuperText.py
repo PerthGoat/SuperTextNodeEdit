@@ -333,15 +333,17 @@ class RTFWindow:
     node_path = self.get_node_path(node)
     
     newWin = tk.Toplevel(self.window)
+    newWin.geometry('200x100')
+    newWin.resizable(False, False)
     entryBox = tk.Entry(newWin)
     entryBox.insert('end', node_path)
-    entryBox.pack()
+    entryBox.place(x=100, y=40, anchor='center')
     
     # refreshes because it is easier
     tk.Button(newWin, text='rename', command=lambda: [
     self.renameFileAndDir(node, node_path, entryBox.get()),
     newWin.destroy()
-    ]).pack()
+    ]).place(x=100, y=65, anchor='center')
   
   def pasteFromClipboard(self, event):
     clipimg = ImageGrab.grabclipboard()
