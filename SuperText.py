@@ -339,7 +339,6 @@ class RTFWindow:
     entryBox.insert('end', node_path)
     entryBox.place(x=100, y=40, anchor='center')
     
-    # refreshes because it is easier
     tk.Button(newWin, text='rename', command=lambda: [
     self.renameFileAndDir(node, node_path, entryBox.get()),
     newWin.destroy()
