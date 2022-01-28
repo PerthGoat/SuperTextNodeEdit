@@ -344,6 +344,7 @@ class RTFWindow:
     self.UI_popup = (newWin := tk.Toplevel(self.window))
     newWin.geometry('200x100')
     newWin.resizable(False, False)
+    newWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
     entryBox = tk.Entry(newWin)
     entryBox.insert('end', node_path)
     entryBox.place(x=100, y=40, anchor='center')
