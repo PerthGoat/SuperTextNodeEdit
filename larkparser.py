@@ -1,28 +1,31 @@
 from lark import Lark
+from pprint import pprint
+import json
 
 # the text to parse
 with open('testfiles/Test.rtf', 'r') as fi:
   rtf_text = fi.read()
 
 
-json_grammar = r'''
+rtf_grammar = r'''
 start         : block
 
-block    : "{" (escaped_letter | string | commandword | block)* "}"
+block    : "{" (NEWLINE | WS_INLINE | string | commandword | block)* "}"
 
-commandword : "\\" (string | (string* ";"))
+commandword : "\\" string [(WS_INLINE string)+] [";" | NEWLINE]
 
 string : letter*
 
-escaped_letter : "\\{" | "\\}" | "\\\\"
+//escaped_letter : "\\{" | "\\}" | "\\\\"
 
-letter : /[a-zA-Z0-9*.()]/
+letter : /[a-zA-Z0-9*.() ]/
 
-%import common.WS
-%ignore WS
+%import common.WS_INLINE
+%import common.NEWLINE
+// %ignore WS_INLINE
 
 '''
 
-json_parser = Lark(json_grammar, parser='earley')
+rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='contextual')
 
-print(json_parser.parse(rtf_text).pretty())
+pprint(rtf_parser.parse(rtf_text))
