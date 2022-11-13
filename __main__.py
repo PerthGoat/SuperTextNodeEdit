@@ -15,6 +15,8 @@ import os
 import glob
 import shutil
 
+import configparser
+
 # multithreading used to open multiple windows and allow for popup dialogs for renaming
 from threading import Thread
 
@@ -26,8 +28,6 @@ from PIL import Image, ImageTk, ImageGrab
 from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from src.RTFParser import RTFParser
-# ini parsing
-from src.iniconfig import INIConfig
 
 # for utf-8 printing
 import sys
@@ -35,14 +35,14 @@ import sys
 # for image copying
 from src.os_specific import Clipboard
 
-from collections import OrderedDict
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
     
-    config_dict = INIConfig(configFile).readConfig() # read the config dictionary into a variable
+    config_dict = configparser.ConfigParser()
+    config_dict.read(configFile)
     
     # set up public variables to this class
     self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] # read in RTF header
