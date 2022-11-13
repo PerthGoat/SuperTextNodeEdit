@@ -45,7 +45,7 @@ class RTFWindow:
     config_dict.read(configFile)
     
     # set up public variables to this class
-    self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] # read in RTF header
+    self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
     self.nodeDir = config_dict['constants']['nodeDir'] # read in directory to hold RTF file tree
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
