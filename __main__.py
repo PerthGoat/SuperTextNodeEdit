@@ -480,5 +480,7 @@ class RTFWindow:
       return 'break'
 
 if __name__ == '__main__':
+  dev_version_number = 1.0
+  print(f"SuperText Version {dev_version_number}")
   sys.stdout.reconfigure(encoding='utf-8')
   RTFWindow()
