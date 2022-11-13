@@ -127,7 +127,7 @@ class RTFWindow:
     self.window.mainloop()
   
   def getNodePathLength(self, node):
-    split_parts = self.get_node_path(node).split('/')
+    split_parts = self.get_node_path(node).split(os.sep)
     cur_name = split_parts[-1]
     split_parts = split_parts[:-1]
     tree_item_padding = (len(split_parts) + 1) * 20 # I use 20 here because tkinter arbitrarily choses that as the padding for the treeview
@@ -279,7 +279,7 @@ class RTFWindow:
     
     newNodeName = f'newNode{len(self.tree.get_children(sel))}'
     
-    path = self.nodeDir + self.get_node_path(sel) + '/' + newNodeName
+    path = self.nodeDir + self.get_node_path(sel) + os.sep + newNodeName
     file_path = path + '.rtf'
     
     # create the new dir to go with the new file
@@ -413,7 +413,7 @@ class RTFWindow:
   # find the node with the path specified
   def find_self(self, file):
     # path portion
-    segments = file.split('/')
+    segments = file.split(os.sep)
     
     if len(segments) == 0:
       return ''
@@ -432,12 +432,12 @@ class RTFWindow:
   # return '' if no parent
   def find_parent(self, file):
     # path portion
-    segments = file.split('/')[:-1]
-    
+    segments = file.split(os.sep)[1:-1]
+
     if len(segments) == 0:
       return ''
     
-    return self.find_self('/'.join(segments))
+    return self.find_self(os.sep.join(segments))
   
   # get the parent of a node in a node tree
   # node->node
@@ -449,14 +449,14 @@ class RTFWindow:
     basepath = self.tree.item(node)['text']
     while (node := self.get_node_parent(node)) != '':
       upper_node = self.tree.item(node)['text']
-      basepath = upper_node + '/' + basepath
+      basepath = upper_node + os.sep + basepath
     
     return basepath
   
   # populate node tree with rtf files
   def populateNodeTree(self):
     self.tree.delete(*self.tree.get_children()) # clear current tree
-    files = glob.glob(f'{self.nodeDir}**/*.rtf', recursive=True)
+    files = glob.glob(os.path.join(self.nodeDir, '**', '*.rtf'), recursive=True)
     
     files = [x.replace(self.nodeDir, '') for x in files]
     
