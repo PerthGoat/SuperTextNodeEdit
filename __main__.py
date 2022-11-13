@@ -23,17 +23,17 @@ from PIL import Image, ImageTk, ImageGrab
 
 # user defined functions
 # scrollable textboxes
-from uicomponents import ScrollableText, ScrollableTreeView
+from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
-from RTFParser import RTFParser
+from src.RTFParser import RTFParser
 # ini parsing
-from iniconfig import INIConfig
+from src.iniconfig import INIConfig
 
 # for utf-8 printing
 import sys
 
 # for image copying
-from os_specific import Clipboard
+from src.os_specific import Clipboard
 
 from collections import OrderedDict
 
