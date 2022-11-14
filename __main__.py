@@ -354,7 +354,7 @@ class RTFWindow:
   
   def pasteFromClipboard(self, event):
     clipimg = ImageGrab.grabclipboard()
-    
+    print(clipimg)
     if clipimg == None: # if no image on clipboard, ignore
       return None
     
