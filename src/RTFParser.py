@@ -37,13 +37,15 @@ class RTFParser:
   
   # gets a words and spaces, for strings of text that shouldn't be separated up
   def getWordsAndSpaces(self, rstr):
-    full = ''
-    for c in rstr:
+    full_char_list = []
+    #full = ''
+    for i, c in enumerate(rstr):
       if self.tokenstart(c) or self.blockstart(c) or self.blockend(c):
         break
-      full += c
+      #full += c
+      full_char_list.append(c)
     
-    return full
+    return ''.join(full_char_list)
   
   # returns the fully expanded parsed object that can be easily accessed
   def parse(self):

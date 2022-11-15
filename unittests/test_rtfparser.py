@@ -17,3 +17,10 @@ class TestRTFParsing(unittest.TestCase):
             rtf_text = fi.read()
 
         RTFParser(rtf_text).parse()
+    
+    def test_complexclipboardparse(self):
+        complexpath = r'unittests/files/debugfile.rtf'
+        with open(complexpath, 'r') as fi:
+            rtf_text = fi.read()
+        
+        RTFParser(rtf_text).parse()
