@@ -4,7 +4,7 @@ from pprint import pprint
 import json
 
 # the text to parse
-with open('profile_pics.rtf', 'r') as fi:
+with open('friends.rtf', 'r') as fi:
   rtf_text = fi.read()
 
 
@@ -17,9 +17,13 @@ wordcomment : COMMENT commandword
 
 commandword : "\\" FULLWORD [";" | NEWLINE | WS_INLINE]
 
-regular_text : (["\\\\"] FULLWORD (WS_INLINE | NEWLINE)*)+
+regular_text : ((escaped_char | FULLWORD) (WS_INLINE | NEWLINE)*)+
 
-FULLWORD : ("_" | LETTER | DIGIT | "." | "(" | ")")+
+escaped_char : ("\\\\" | "\\") (UNICODE_CHAR | LETTER)
+
+UNICODE_CHAR.1 : "u" DIGIT+ "?"
+
+FULLWORD : ("_" | LETTER | DIGIT | "." | "(" | ")" | "-" | ":" | "/" | "?" | "=" | "'" | "\"")+
 
 COMMENT : "\\*"
 
@@ -72,6 +76,7 @@ class InterpretRTFTree(Interpreter):
   
   def regular_text(self, tree):
     if self.nesting_level == 1:
+      #print(tree.children)
       self.list_context += [('TEXT', ''.join([x.value for x in tree.children]))]
     else:
       self.list_context += [('CMDPARAM', ''.join([x.value for x in tree.children]))]
@@ -79,6 +84,15 @@ class InterpretRTFTree(Interpreter):
 class TransformRemoveComments(Transformer):
   def wordcomment(self, args):
     return Discard
+  def escaped_char(self, args):
+    char_val = args[0].value
+    if char_val[0] == 'u':
+      uend = char_val.index('?') # end of unicode char literal in RTF is marked by ?
+      unicode_char = chr(int(char_val[1:uend]))
+      args[0].value = unicode_char
+      return args[0]
+    
+    return args[0]
 
 rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='contextual')
 
@@ -86,7 +100,7 @@ parse_results = rtf_parser.parse(rtf_text)
 
 transformed = TransformRemoveComments().transform(parse_results)
 
-#print(parse_results.pretty())
+#print(transformed.pretty())
 
 res = InterpretRTFTree()
 res.visit(transformed)
