@@ -20,7 +20,7 @@ generictext: unicode_char | normaltext
 ?unicode_char: "\\" UNICODE_CHAR
 
 UNICODE_CHAR: "u" /[0-9]/+ "?"
-FILLER.-1: /[^{} \t\f\r\n\\]/+
+FILLER.-1: (/[^{} \t\f\r\n\\]/ | "\\\\")+
 
 BLOCKOPEN: "{"
 BLOCKCLOSE: "}"

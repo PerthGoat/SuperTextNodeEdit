@@ -164,7 +164,8 @@ class RTFWindow:
         self.displayNestedRTFStructure(r)
         continue
       if r[0] == 'TEXT':
-        self.text.insert('end', r[1])
+        # replace double backslash with backslash since it's just an escape for a normal backslash
+        self.text.insert('end', r[1].replace('\\\\', '\\'))
       elif r[0] == 'RTFCMD': # rtf modifier commands
         match(r[1]):
           case 'par': # rtf's version of an explicit newline
@@ -542,6 +543,6 @@ class RTFWindow:
       return 'break'
 
 if __name__ == '__main__':
-  dev_version_number = 1.02
+  dev_version_number = 1.03
   print(f"SuperText Version {dev_version_number}")
   RTFWindow()
