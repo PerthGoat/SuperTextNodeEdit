@@ -62,7 +62,7 @@ class RTFParser:
             self.nesting_level -= 1
         
         def command(self, tree):
-            self.list_context += [('RTFCMD', tree.children[0].value)]
+            self.list_context += [('RTFCMD', tree.children[1].value)]
         
         def generictext(self, tree):
             #print(tree.children)
