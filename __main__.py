@@ -541,6 +541,6 @@ class RTFWindow:
       return 'break'
 
 if __name__ == '__main__':
-  dev_version_number = 1.04
+  dev_version_number = 1.05
   print(f"SuperText Version {dev_version_number}")
   RTFWindow()
