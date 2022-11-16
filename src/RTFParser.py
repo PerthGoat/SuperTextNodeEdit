@@ -83,6 +83,8 @@ class RTFParser:
                 return Token('UNICODE_CHAR_EVAL', unicode_char)
             
             return Token('UNICODE_CHAR', char_val)
+        def SPECIAL_ESCAPE_CHAR(self, args):
+          return Token('SPECIAL_RESOLVED_CHAR', args.replace('\\', ''))
 
     def parseme(self):
         rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='basic')
