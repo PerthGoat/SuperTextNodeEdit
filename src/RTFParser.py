@@ -22,7 +22,7 @@ generictext: unicode_char | normaltext
 UNICODE_CHAR: "u" /[0-9]/+ "?"
 FILLER.-1: (/[^{} \t\f\r\n\\]/)+
 
-ESCAPE_SEQUENCE.-1: "\\"
+ESCAPE_SEQUENCE: "\\"
 
 DOUBLE_ESCAPE: ESCAPE_SEQUENCE ESCAPE_SEQUENCE
 
@@ -102,7 +102,7 @@ class RTFParser:
 
         return res.list_context[0]
 
-#with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
+#with open(r'Y:\ultranotes\things-to-fulfill-20s.rtf', 'r') as fi:
     #data = fi.read()
 
 #print(RTFParser(data).parseme()[0:30])
