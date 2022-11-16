@@ -8,7 +8,7 @@ import json
 rtf_grammar = r'''
 start         : block
 
-block    : "{" (NEWLINE | WS_INLINE | wordcomment | commandword | block | ";" | regular_text)* "}"
+block    : "{" (NEWLINE | WS_INLINE | wordcomment | commandword | block | ";" | regular_text)* "}" NEWLINE*
 
 wordcomment : COMMENT commandword
 

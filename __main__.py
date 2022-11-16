@@ -403,22 +403,34 @@ class RTFWindow:
     ]).place(x=100, y=65, anchor='center')
   
   def pasteFromClipboard(self, event):
-    clipimg = ImageGrab.grabclipboard()
-    print(clipimg)
-    if clipimg == None: # if no image on clipboard, ignore
-      return None
+    self.clip.open_clipboard()
+
+    clip_rtf_data = self.clip.get_clipboard()
+
+    self.clip.close_clipboard()
     
-    if type(clipimg) == list:
-      for img in clipimg:
-        self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
-    
-        self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+    if clip_rtf_data == None:
+      clipimg = ImageGrab.grabclipboard()
+      #print(clipimg)
+      if clipimg == None: # if no image on clipboard, ignore
+        return None
       
-      return None
-    
-    self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
-    
-    self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+      if type(clipimg) == list:
+        for img in clipimg:
+          self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
+      
+          self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+        
+        return None
+      
+      self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
+      
+      self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+    else: # rtf data on the clipboard
+      # parse it and display it as normal, to facilitate being able to copy-paste within SuperText
+      parsed_clip = RTFParser(clip_rtf_data).parseme()
+      self.displayNestedRTFStructure(parsed_clip)
+      #print(parsed_clip)
   
   def copyFromClipboard(self, event):
     if not self.text.tag_ranges('sel'):
@@ -437,10 +449,10 @@ class RTFWindow:
     #shifted_img.save(ibytes, 'DIB')
     
     self.clip.open_clipboard()
-    self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF)
+    self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
     # write first image in selection to clipboard under the special BITMAP thing
     # just to have something
-    for tkimg in self.tkinter_imagelist:
+    '''for tkimg in self.tkinter_imagelist:
       if str(tkimg) in imgs_in_selection:
         ImageTk.getimage(tkimg).save(ibytes, 'DIB')
         self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
@@ -449,7 +461,7 @@ class RTFWindow:
     try:
       self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
     except UnicodeEncodeError:
-      self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
+      self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)'''
     
     self.clip.close_clipboard()
     

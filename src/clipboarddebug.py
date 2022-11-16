@@ -59,6 +59,8 @@ GetClipboardData.restype = ctypes.wintypes.HANDLE
 
 goal_item = format_mapping_dict['Rich Text Format Without Objects']
 
+print(goal_item)
+
 res = GetClipboardData(goal_item)
 
 data_lock = GlobalLock(res)
@@ -73,5 +75,5 @@ CloseClipboard() # close the clipboard handle
 
 #pprint(format_mapping_dict)
 
-with open('debugfile.rtf', 'w') as fi:
-    fi.write(val)
+#with open('debugfile.rtf', 'w') as fi:
+#    fi.write(val)
