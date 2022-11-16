@@ -462,7 +462,8 @@ class RTFWindow:
       parsed_clip = RTFParser(clip_rtf_data).parseme()
       self.displayNestedRTFStructure(parsed_clip)
       #print(parsed_clip)
-  
+    return 'break'
+
   def copyFromClipboard(self, event):
     if not self.text.tag_ranges('sel'):
       return None

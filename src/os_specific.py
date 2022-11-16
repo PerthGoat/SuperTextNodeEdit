@@ -147,7 +147,7 @@ class Clipboard:
     clipformats = self.__wingetclipboardformats()
 
     if 'Rich Text Format Without Objects' not in clipformats:
-      print('No Rich Text On Clipboard To Paste!')
+      #print('No Rich Text On Clipboard To Paste!')
       return None
     res = GetClipboardData(clipformats['Rich Text Format Without Objects'])
 
