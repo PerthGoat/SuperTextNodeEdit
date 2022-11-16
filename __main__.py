@@ -156,6 +156,54 @@ class RTFWindow:
     # which gives a horizontal scrollbar
     self.tree.column('#0', width=biggest_node_width, stretch=False)
     
+  def displayNestedRTFStructure(self, structure):
+    lastcmd = None
+    for i, r in enumerate(structure):
+      # if nested stuff exists
+      if isinstance(r, list):
+        self.displayNestedRTFStructure(r)
+        continue
+      if r[0] == 'TEXT':
+        self.text.insert('end', r[1])
+      elif r[0] == 'RTFCMD': # rtf modifier commands
+        match(r[1]):
+          case 'par': # rtf's version of an explicit newline
+            self.text.insert('end', '\n')
+          case 'pict': # a picture
+            pass # this does nothing, it's chained with another typically
+          case 'pngblip':
+            if lastcmd[0] != 'RTFCMD' or lastcmd[1] != 'pict':
+              print('ERROR: Missing a pict command before the image def!')
+          # header cmds, ignore
+          case 'rtf1':
+            pass
+          case 'ansi':
+            pass
+          case 'pard':
+            pass
+          case 'fonttbl': # idc about font for now
+            pass
+          case 'f0':
+            pass
+          case 'fswiss':
+            pass
+          case _: # failout if command is completely not known
+            print("ERROR: I see a command but I don't know what it means!")
+            print(r)          
+      elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
+        if lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
+          imgdata = io.BytesIO(bytes.fromhex(r[1]))
+          img = Image.open(imgdata)
+
+          self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
+
+          self.text.image_create('end', image=self.tkinter_imagelist[-1])
+          self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
+      else:
+        print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
+        print(r)
+      lastcmd = r
+
   def tryReadShowRTF(self, event): # event is not used
     self.text.delete('1.0', 'end') # delete all text in textbox currently
     
@@ -177,23 +225,25 @@ class RTFWindow:
       with open(self.openFile, 'r') as fi:
         data = fi.read()
     # parse the RTF using the RTF parser
-    rt = RTFParser(data).parse()
-    #print(rt)
+    rt = RTFParser(data).parseme()
+
     # verify the header matches the expected for an RTF that this program can read
-    assert rt[0] == 'rtf1'
-    assert rt[1] == 'ansi'
-    assert rt[2] == 'pard'
+    assert rt[0][0] == 'RTFCMD' and rt[0][1] == 'rtf1'
+    assert rt[1][0] == 'RTFCMD' and rt[1][1] == 'ansi'
+    assert rt[2][0] == 'RTFCMD' and rt[2][1] == 'pard'
     assert len(rt[3]) == 4 # font selection is half-baked
-    assert rt[4] == 'f0'
+    assert rt[4][0] == 'RTFCMD' and rt[4][1] == 'f0'
     
     # all header checks have passed, now the header can be trimmed off
-    trimmed_header_rt = rt[5:]
+    #trimmed_header_rt = rt[5:]
     # clear existing images from image list
     self.tkinter_imagelist = []
+
+    self.displayNestedRTFStructure(rt)
     #print(trimmed_header_rt)
     # go thru each RTF block and do something with it
-    for i, r in enumerate(trimmed_header_rt):
-      if isinstance(r, list): # only support pngblip pictures and paragraph blocks
+    
+    '''if isinstance(r, list): # only support pngblip pictures and paragraph blocks
         if r[0] == 'pict':
           # check for RTF png header
           assert r[0] == 'pict'
@@ -220,7 +270,7 @@ class RTFWindow:
           self.text.insert('end', unicode_char)
           self.text.insert('end', r[0][uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
       else: # nuclear mode, put out whatever got read to parse as best as possible
-        self.text.insert('end', r)
+        self.text.insert('end', r)'''
   
   # convert a text selection to RTF
   # start to finish of selection

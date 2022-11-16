@@ -9,18 +9,11 @@ class TestRTFParsing(unittest.TestCase):
         with open(testfile_path, 'r') as fi:
             rtf_text = fi.read()
 
-        RTFParser(rtf_text).parse()
+        RTFParser(rtf_text).parseme()
 
     def test_parsefail(self):
         badfile_path = 'unittests/files/badfile.rtf'
         with open(badfile_path, 'r') as fi:
             rtf_text = fi.read()
 
-        RTFParser(rtf_text).parse()
-    
-    def test_complexclipboardparse(self):
-        complexpath = r'unittests/files/debugfile.rtf'
-        with open(complexpath, 'r') as fi:
-            rtf_text = fi.read()
-        
-        RTFParser(rtf_text).parse()
+        RTFParser(rtf_text).parseme()
