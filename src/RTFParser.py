@@ -72,8 +72,8 @@ class RTFParser:
                 self.list_context += [('CMDPARAM', ''.join([x.value for x in tree.children]))]
         
     class TransformFixStuff(Transformer):
-        def UNICODE_CHAR(self, args):
-            char_val = args
+        def unicode_char(self, args):
+            char_val = args[1]
             if char_val[0] == 'u':
                 uend = char_val.index('?') # end of unicode char literal in RTF is marked by ?
                 unicode_char = chr(int(char_val[1:uend]))
