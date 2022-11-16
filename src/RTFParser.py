@@ -8,21 +8,25 @@ import json
 rtf_grammar = r'''
 start         : block
 
-block    : "{" (NEWLINE | WS_INLINE | wordcomment | commandword | block | ";" | regular_text)* "}" NEWLINE*
+block    : "{" (NEWLINE | WS_INLINE | wordcomment | commandword | block | ";" | regular_word)* "}" NEWLINE*
+
+commandword : ESCAPE FULLWORD [";" | NEWLINE | WS_INLINE]
 
 wordcomment : COMMENT commandword
 
-commandword : "\\" FULLWORD [";" | NEWLINE | WS_INLINE]
+regular_word : (escaped_char | FULLWORD) (WS_INLINE | NEWLINE)*
 
-regular_text : ((escaped_char | FULLWORD) (WS_INLINE | NEWLINE)*)+
-
-escaped_char : ("\\\\" | "\\") (UNICODE_CHAR | LETTER)
+escaped_char : (ESCAPE ESCAPE LETTER | ESCAPE UNICODE_CHAR)
 
 UNICODE_CHAR.1 : "u" DIGIT+ "?"
 
-FULLWORD : ("_" | LETTER | DIGIT | "." | "(" | ")" | "-" | ":" | "/" | "?" | "=" | "'" | "\"")+
+FULLWORD : ALPHABET+
 
-COMMENT : "\\*"
+ALPHABET : "_" | LETTER | DIGIT | "." | "(" | ")" | "-" | ":" | "/" | "?" | "=" | "'" | "\""
+
+COMMENT : ESCAPE "*"
+
+ESCAPE : "\\"
 
 %import common.WS_INLINE
 %import common.NEWLINE
@@ -60,34 +64,34 @@ class RTFParser:
         
         def commandword(self, tree):
             #print()
-            self.list_context += [('RTFCMD', tree.children[0].value)]
+            self.list_context += [('RTFCMD', tree.children[1].value)]
         
-        def regular_text(self, tree):
+        def regular_word(self, tree):
+            #print(tree.children)
             if self.nesting_level == 1:
-                #print(tree.children)
                 self.list_context += [('TEXT', ''.join([x.value for x in tree.children]))]
             else:
                 self.list_context += [('CMDPARAM', ''.join([x.value for x in tree.children]))]
 
-    class TransformRemoveComments(Transformer):
+    class TransformFixStuff(Transformer):
         def wordcomment(self, args):
             return Discard
         def escaped_char(self, args):
-            char_val = args[0].value
+            char_val = args[1].value
             if char_val[0] == 'u':
                 uend = char_val.index('?') # end of unicode char literal in RTF is marked by ?
                 unicode_char = chr(int(char_val[1:uend]))
-                args[0].value = unicode_char
-                return args[0]
+                args[1].value = unicode_char
+                return args[1]
             
-            return args[0]
+            return args[1]
 
     def parseme(self):
         rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='contextual')
 
         parse_results = rtf_parser.parse(self.rtf_text)
 
-        transformed = self.TransformRemoveComments().transform(parse_results)
+        transformed = self.TransformFixStuff().transform(parse_results)
 
         #print(transformed.pretty())
 
@@ -95,3 +99,8 @@ class RTFParser:
         res.visit(transformed)
 
         return res.list_context[0]
+
+#with open('debugout.rtf', 'r') as fi:
+#    data = fi.read()
+
+#print(RTFParser(data).parseme())
