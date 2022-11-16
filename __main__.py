@@ -174,6 +174,35 @@ class RTFWindow:
           case 'pngblip':
             if lastcmd[0] != 'RTFCMD' or lastcmd[1] != 'pict':
               print('ERROR: Missing a pict command before the image def!')
+          # not implemented commands, ignore
+          case 'ansicpg1252':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'deff0':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'nouicompat':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'deflang1033':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fnil':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fcharset0':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'viewkind4':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'uc1':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'sa200':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'sl240':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'slmult1':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fs22':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'lang9':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'wmetafile8':
+            print('Not implemented RTFCMD ' + r[1])
           # header cmds, ignore
           case 'rtf1':
             pass
@@ -191,7 +220,7 @@ class RTFWindow:
             print("ERROR: I see a command but I don't know what it means!")
             print(r)          
       elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
-        if lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
+        if lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
           imgdata = io.BytesIO(bytes.fromhex(r[1]))
           img = Image.open(imgdata)
 
@@ -199,6 +228,8 @@ class RTFWindow:
 
           self.text.image_create('end', image=self.tkinter_imagelist[-1])
           self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
+        if lastcmd == None:
+          print('Warning: command parameter without preceding command ' + r[1])
       else:
         print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
         print(r)
@@ -234,43 +265,12 @@ class RTFWindow:
     assert len(rt[3]) == 4 # font selection is half-baked
     assert rt[4][0] == 'RTFCMD' and rt[4][1] == 'f0'
     
-    # all header checks have passed, now the header can be trimmed off
-    #trimmed_header_rt = rt[5:]
+    # all header checks have passed
+    
     # clear existing images from image list
     self.tkinter_imagelist = []
 
     self.displayNestedRTFStructure(rt)
-    #print(trimmed_header_rt)
-    # go thru each RTF block and do something with it
-    
-    '''if isinstance(r, list): # only support pngblip pictures and paragraph blocks
-        if r[0] == 'pict':
-          # check for RTF png header
-          assert r[0] == 'pict'
-          assert r[1] == 'pngblip'
-          
-          # put image in textbox
-          imgdata = io.BytesIO(bytes.fromhex(r[2]))
-          img = Image.open(imgdata)
-          
-          self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
-          
-          self.text.image_create('end', image=self.tkinter_imagelist[-1])
-          self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
-        elif r[0] == 'par' and trimmed_header_rt[i - 1][0] != 'pict':
-          if len(r) == 1: # if the paragraph has no text
-            self.text.insert('end', '\n') # then it is merely a linebreak
-          elif isinstance(r[1], list): # this will never happen with this program because nesting in a par block isn't supported
-            pass # either way don't crash, try to keep parsing
-          else:
-            self.text.insert('end', r[1]) # print out the text defined in the paragraph block
-        elif r[0][0] == 'u': # unicode escapes stand alone without a block
-          uend = r[0].index('?') # end of unicode char literal in RTF is marked by ?
-          unicode_char = chr(int(r[0][1:uend]))
-          self.text.insert('end', unicode_char)
-          self.text.insert('end', r[0][uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
-      else: # nuclear mode, put out whatever got read to parse as best as possible
-        self.text.insert('end', r)'''
   
   # convert a text selection to RTF
   # start to finish of selection
@@ -403,23 +403,36 @@ class RTFWindow:
     ]).place(x=100, y=65, anchor='center')
   
   def pasteFromClipboard(self, event):
-    clipimg = ImageGrab.grabclipboard()
+    self.clip.open_clipboard()
+
+    clip_rtf_data = self.clip.get_clipboard()
+
+    self.clip.close_clipboard()
     
-    if clipimg == None: # if no image on clipboard, ignore
-      return None
-    
-    if type(clipimg) == list:
-      for img in clipimg:
-        self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
-    
-        self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+    if clip_rtf_data == None: # fallback on grabbing very normal images from clipboard
+      clipimg = ImageGrab.grabclipboard()
+      #print(clipimg)
+      if clipimg == None: # if no image on clipboard, ignore
+        return None
       
-      return None
-    
-    self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
-    
-    self.text.image_create('insert', image=self.tkinter_imagelist[-1])
-  
+      if type(clipimg) == list:
+        for img in clipimg:
+          self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
+      
+          self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+        
+        return None
+      
+      self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
+      
+      self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+    else: # rtf data on the clipboard
+      # parse it and display it as normal, to facilitate being able to copy-paste within SuperText
+      parsed_clip = RTFParser(clip_rtf_data).parseme()
+      self.displayNestedRTFStructure(parsed_clip)
+      #print(parsed_clip)
+    return 'break'
+
   def copyFromClipboard(self, event):
     if not self.text.tag_ranges('sel'):
       return None
@@ -431,28 +444,29 @@ class RTFWindow:
     
     text_in_selection = [x[1] for x in selected_text if 'text' in x]
     imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
-    
+
     ibytes = io.BytesIO()
     #shifted_img = ImageTk.getimage(self.tkinter_imagelist[0])
     #shifted_img.save(ibytes, 'DIB')
     
     self.clip.open_clipboard()
-    self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF)
-    # write first image in selection to clipboard under the special BITMAP thing
-    # just to have something
-    for tkimg in self.tkinter_imagelist:
-      if str(tkimg) in imgs_in_selection:
-        ImageTk.getimage(tkimg).save(ibytes, 'DIB')
-        self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
-        break
-    
-    try:
-      self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
-    except UnicodeEncodeError:
-      self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
-    
+    # this is needed for unknown reasons, the docs say this should lose the handle
+    self.clip.clear_clipboard()
+    if len(text_in_selection) > 0 and len(imgs_in_selection) > 0:
+      self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
+    elif len(text_in_selection) > 0:
+      try:
+        self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
+      except UnicodeEncodeError:
+        self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
+    elif len(imgs_in_selection) > 0:
+      for tkimg in self.tkinter_imagelist:
+        if str(tkimg) in imgs_in_selection:
+          ImageTk.getimage(tkimg).save(ibytes, 'DIB')
+          self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
+          break
+
     self.clip.close_clipboard()
-    
     #self.window.clipboard_clear()
     #clipboard_paste(ibytes.getvalue())
     

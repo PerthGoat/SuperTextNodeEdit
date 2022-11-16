@@ -17,3 +17,10 @@ class TestRTFParsing(unittest.TestCase):
             rtf_text = fi.read()
 
         RTFParser(rtf_text).parseme()
+
+    def test_clippastefile(self):
+        badfile_path = 'unittests/files/debugfile.rtf'
+        with open(badfile_path, 'r') as fi:
+            rtf_text = fi.read()
+
+        contents = RTFParser(rtf_text).parseme()
