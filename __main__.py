@@ -164,8 +164,7 @@ class RTFWindow:
         self.displayNestedRTFStructure(r)
         continue
       if r[0] == 'TEXT':
-        # replace double backslash with backslash since it's just an escape for a normal backslash
-        self.text.insert('end', r[1].replace('\\\\', '\\'))
+        self.text.insert('end', r[1])
       elif r[0] == 'RTFCMD': # rtf modifier commands
         match(r[1]):
           case 'par': # rtf's version of an explicit newline

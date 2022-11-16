@@ -15,12 +15,12 @@ command: ESCAPE_SEQUENCE FILLER WS_NOGRAB?
 
 generictext: unicode_char | normaltext
 
-?normaltext: WS_NOGRAB | FILLER
+?normaltext: WS_NOGRAB | FILLER | SPECIAL_ESCAPE_CHAR | DOUBLE_ESCAPE
 
 ?unicode_char: ESCAPE_SEQUENCE UNICODE_CHAR
 
 UNICODE_CHAR: "u" /[0-9]/+ "?"
-FILLER.-1: (/[^{} \t\f\r\n\\]/ | DOUBLE_ESCAPE | SPECIAL_ESCAPE_CHAR)+
+FILLER.-1: (/[^{} \t\f\r\n\\]/)+
 
 ESCAPE_SEQUENCE.-1: "\\"
 
@@ -84,7 +84,9 @@ class RTFParser:
             
             return Token('UNICODE_CHAR', char_val)
         def SPECIAL_ESCAPE_CHAR(self, args):
-          return Token('SPECIAL_RESOLVED_CHAR', args.replace('\\', ''))
+            return Token('SPECIAL_RESOLVED_CHAR', args.replace('\\', ''))
+        def DOUBLE_ESCAPE(self, args):
+            return Token('DOUBLE_ESCAPE_RESOLVED', args.replace('\\\\', '\\'))
 
     def parseme(self):
         rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='basic')
