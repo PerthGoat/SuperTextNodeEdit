@@ -174,6 +174,35 @@ class RTFWindow:
           case 'pngblip':
             if lastcmd[0] != 'RTFCMD' or lastcmd[1] != 'pict':
               print('ERROR: Missing a pict command before the image def!')
+          # not implemented commands, ignore
+          case 'ansicpg1252':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'deff0':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'nouicompat':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'deflang1033':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fnil':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fcharset0':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'viewkind4':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'uc1':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'sa200':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'sl240':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'slmult1':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'fs22':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'lang9':
+            print('Not implemented RTFCMD ' + r[1])
+          case 'wmetafile8':
+            print('Not implemented RTFCMD ' + r[1])
           # header cmds, ignore
           case 'rtf1':
             pass
@@ -191,7 +220,7 @@ class RTFWindow:
             print("ERROR: I see a command but I don't know what it means!")
             print(r)          
       elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
-        if lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
+        if lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
           imgdata = io.BytesIO(bytes.fromhex(r[1]))
           img = Image.open(imgdata)
 
@@ -199,6 +228,8 @@ class RTFWindow:
 
           self.text.image_create('end', image=self.tkinter_imagelist[-1])
           self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
+        if lastcmd == None:
+          print('Warning: command parameter without preceding command ' + r[1])
       else:
         print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
         print(r)
@@ -409,7 +440,7 @@ class RTFWindow:
 
     self.clip.close_clipboard()
     
-    if clip_rtf_data == None:
+    if clip_rtf_data == None: # fallback on grabbing very normal images from clipboard
       clipimg = ImageGrab.grabclipboard()
       #print(clipimg)
       if clipimg == None: # if no image on clipboard, ignore
@@ -443,28 +474,29 @@ class RTFWindow:
     
     text_in_selection = [x[1] for x in selected_text if 'text' in x]
     imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
-    
+
     ibytes = io.BytesIO()
     #shifted_img = ImageTk.getimage(self.tkinter_imagelist[0])
     #shifted_img.save(ibytes, 'DIB')
     
     self.clip.open_clipboard()
-    self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
-    # write first image in selection to clipboard under the special BITMAP thing
-    # just to have something
-    '''for tkimg in self.tkinter_imagelist:
-      if str(tkimg) in imgs_in_selection:
-        ImageTk.getimage(tkimg).save(ibytes, 'DIB')
-        self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
-        break
-    
-    try:
-      self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
-    except UnicodeEncodeError:
-      self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)'''
-    
+    # this is needed for unknown reasons, the docs say this should lose the handle
+    self.clip.clear_clipboard()
+    if len(text_in_selection) > 0 and len(imgs_in_selection) > 0:
+      self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
+    elif len(text_in_selection) > 0:
+      try:
+        self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
+      except UnicodeEncodeError:
+        self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
+    elif len(imgs_in_selection) > 0:
+      for tkimg in self.tkinter_imagelist:
+        if str(tkimg) in imgs_in_selection:
+          ImageTk.getimage(tkimg).save(ibytes, 'DIB')
+          self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
+          break
+
     self.clip.close_clipboard()
-    
     #self.window.clipboard_clear()
     #clipboard_paste(ibytes.getvalue())
     

@@ -15,7 +15,7 @@ class Clipboard:
   RTF_NO_OBJ=49514
   def __init__(self):
     platforms = {
-      'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, self.__wingetclipboard, lambda : [(lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()]],
+      'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, self.__wingetclipboard, self.__winclearclipboard, lambda : [(lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()]],
       'posix': [self.__linuxclipboard, None, None],
       'darwin': [self.__macosclipboard, None, None]
     }
@@ -26,8 +26,9 @@ class Clipboard:
     self.open_clipboard = platform_specific[1]
     self.close_clipboard = platform_specific[2]
     self.get_clipboard = platform_specific[3]
+    self.clear_clipboard = platform_specific[4]
     # do imports
-    platform_specific[4]()
+    platform_specific[5]()
   
   def __winopenclipboard(self):
     OpenClipboard = ctypes.windll.user32.OpenClipboard
@@ -37,11 +38,12 @@ class Clipboard:
     CloseClipboard = ctypes.windll.user32.CloseClipboard
     CloseClipboard() # close the clipboard handle
   
+  def __winclearclipboard(self):
+    EmptyClipboard = ctypes.windll.user32.EmptyClipboard
+    EmptyClipboard()
+
   # takes data in bytes
   def __winclipboard(self, data, data_type):
-    EmptyClipboard = ctypes.windll.user32.EmptyClipboard
-    EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
-    
     if type(data) != type(b''): # make sure data contains only bytes
       tk.messagebox.showerror(title='Wrong data', message=f'Need to be passed bytes for clipboard, not type {type(data)}')
     
