@@ -44,7 +44,7 @@ class RTFWindow:
     
     # set up public variables to this class
     self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
-    self.nodeDir = config_dict['constants']['nodeDir'] # read in directory to hold RTF file tree
+    self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.sep # read in directory to hold RTF file tree
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
     
@@ -494,8 +494,7 @@ class RTFWindow:
   # return '' if no parent
   def find_parent(self, file):
     # path portion
-    segments = file.split(os.sep)[1:-1]
-
+    segments = file.split(os.sep)[0:-1]
     if len(segments) == 0:
       return ''
     
@@ -520,7 +519,7 @@ class RTFWindow:
     self.tree.delete(*self.tree.get_children()) # clear current tree
     files = glob.glob(os.path.join(self.nodeDir, '**', '*.rtf'), recursive=True)
     
-    files = [x.replace(self.nodeDir, '') for x in files]
+    files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
     
     for fi in files:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
