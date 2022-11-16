@@ -265,43 +265,12 @@ class RTFWindow:
     assert len(rt[3]) == 4 # font selection is half-baked
     assert rt[4][0] == 'RTFCMD' and rt[4][1] == 'f0'
     
-    # all header checks have passed, now the header can be trimmed off
-    #trimmed_header_rt = rt[5:]
+    # all header checks have passed
+    
     # clear existing images from image list
     self.tkinter_imagelist = []
 
     self.displayNestedRTFStructure(rt)
-    #print(trimmed_header_rt)
-    # go thru each RTF block and do something with it
-    
-    '''if isinstance(r, list): # only support pngblip pictures and paragraph blocks
-        if r[0] == 'pict':
-          # check for RTF png header
-          assert r[0] == 'pict'
-          assert r[1] == 'pngblip'
-          
-          # put image in textbox
-          imgdata = io.BytesIO(bytes.fromhex(r[2]))
-          img = Image.open(imgdata)
-          
-          self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
-          
-          self.text.image_create('end', image=self.tkinter_imagelist[-1])
-          self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
-        elif r[0] == 'par' and trimmed_header_rt[i - 1][0] != 'pict':
-          if len(r) == 1: # if the paragraph has no text
-            self.text.insert('end', '\n') # then it is merely a linebreak
-          elif isinstance(r[1], list): # this will never happen with this program because nesting in a par block isn't supported
-            pass # either way don't crash, try to keep parsing
-          else:
-            self.text.insert('end', r[1]) # print out the text defined in the paragraph block
-        elif r[0][0] == 'u': # unicode escapes stand alone without a block
-          uend = r[0].index('?') # end of unicode char literal in RTF is marked by ?
-          unicode_char = chr(int(r[0][1:uend]))
-          self.text.insert('end', unicode_char)
-          self.text.insert('end', r[0][uend+1:]) # tack on extra text that might have gotten pulled in from the \ declaration
-      else: # nuclear mode, put out whatever got read to parse as best as possible
-        self.text.insert('end', r)'''
   
   # convert a text selection to RTF
   # start to finish of selection
