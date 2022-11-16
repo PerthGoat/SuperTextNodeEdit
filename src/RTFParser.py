@@ -20,11 +20,14 @@ generictext: unicode_char | normaltext
 ?unicode_char: ESCAPE_SEQUENCE UNICODE_CHAR
 
 UNICODE_CHAR: "u" /[0-9]/+ "?"
-FILLER.-1: (/[^{} \t\f\r\n\\]/ | DOUBLE_ESCAPE)+
+FILLER.-1: (/[^{} \t\f\r\n\\]/ | DOUBLE_ESCAPE | SPECIAL_ESCAPE_CHAR)+
 
 ESCAPE_SEQUENCE.-1: "\\"
 
 DOUBLE_ESCAPE: ESCAPE_SEQUENCE ESCAPE_SEQUENCE
+
+// special escape char is for weird chars like {} that would be hard to insert into text without escaping them
+SPECIAL_ESCAPE_CHAR: ESCAPE_SEQUENCE (BLOCKOPEN | BLOCKCLOSE)
 
 BLOCKOPEN: "{"
 BLOCKCLOSE: "}"
@@ -95,7 +98,7 @@ class RTFParser:
 
         return res.list_context[0]
 
-#with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
-    #data = fi.read()
+with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
+    data = fi.read()
 
-#print(RTFParser(data).parseme()[0:30])
+print(RTFParser(data).parseme()[0:30])
