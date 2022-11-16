@@ -11,16 +11,20 @@ start: block WS_NOGRAB*
 
 block: BLOCKOPEN (block | command | generictext)* BLOCKCLOSE
 
-command: "\\" FILLER WS_NOGRAB?
+command: ESCAPE_SEQUENCE FILLER WS_NOGRAB?
 
 generictext: unicode_char | normaltext
 
 ?normaltext: WS_NOGRAB | FILLER
 
-?unicode_char: "\\" UNICODE_CHAR
+?unicode_char: ESCAPE_SEQUENCE UNICODE_CHAR
 
 UNICODE_CHAR: "u" /[0-9]/+ "?"
-FILLER.-1: (/[^{} \t\f\r\n\\]/ | "\\\\")+
+FILLER.-1: (/[^{} \t\f\r\n\\]/ | DOUBLE_ESCAPE)+
+
+ESCAPE_SEQUENCE.-1: "\\"
+
+DOUBLE_ESCAPE: ESCAPE_SEQUENCE ESCAPE_SEQUENCE
 
 BLOCKOPEN: "{"
 BLOCKCLOSE: "}"
@@ -91,7 +95,7 @@ class RTFParser:
 
         return res.list_context[0]
 
-#with open(r'Y:\ultranotes\copypastas\doge.rtf', 'r') as fi:
+#with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
     #data = fi.read()
 
 #print(RTFParser(data).parseme()[0:30])
