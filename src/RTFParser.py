@@ -98,7 +98,7 @@ class RTFParser:
 
         return res.list_context[0]
 
-with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
-    data = fi.read()
+#with open(r'Y:\ultranotes\newNode25.rtf', 'r') as fi:
+    #data = fi.read()
 
-print(RTFParser(data).parseme()[0:30])
+#print(RTFParser(data).parseme()[0:30])
