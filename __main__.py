@@ -227,7 +227,8 @@ class RTFWindow:
           self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
 
           self.text.image_create('end', image=self.tkinter_imagelist[-1])
-          self.text.insert('end', '\n') # this is the functionality word and wordpad have when encountering images, they add a newline
+          # old comment: this is the functionality word and wordpad have when encountering images, they add a newline
+          # self.text.insert('end', '\n') # it seems like this isn't needed when you are actually parsing the RTF file to spec (new RTF parser)
         if lastcmd == None:
           print('Warning: command parameter without preceding command ' + r[1])
       else:
