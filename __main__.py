@@ -144,9 +144,12 @@ class RTFWindow:
     newpath = os.path.normpath(newpath) + os.sep
     self.populateNodeTree(newpath, selected_node)
 
+  # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
     selected_node = self.tree.selection()
-    self.tree.delete(*self.tree.get_children(selected_node)) # clear tree from unloading node
+    # do the children so dropdown is still there
+    for child in self.tree.get_children(selected_node):
+      self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
 
   # go through the entire tree, finding the longest element in it
   # only recurse in "open" entries of the treeview, which will also save performance
