@@ -373,6 +373,11 @@ class RTFWindow:
       pass
   
   def renameFileAndDir(self, node, old_path, new_path):
+    # todo: update this to use the new populateNodeTree functionality rathre than implementing its own logic for refreshing the node tree
+
+    if old_path in new_path:
+      messagebox.showerror("Cannot move node into itself!", "Cannot move node into itself!")
+      return
     shutil.move(self.nodeDir + old_path, self.nodeDir + new_path)
     shutil.move(self.nodeDir + old_path + '.rtf', self.nodeDir + new_path + '.rtf')
     
@@ -564,7 +569,7 @@ class RTFWindow:
     for fi in files:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
     
-    if len(self.tree.get_children()) > 0:
+    if len(self.tree.get_children()) > 0 and startPath == self.nodeDir:
       self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
 
 
