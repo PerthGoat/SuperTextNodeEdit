@@ -103,7 +103,9 @@ class RTFWindow:
 
     # bind a callback for treeview open so that lazy loading is possible
     self.tree.bind('<<TreeviewOpen>>', self.lazyloadNodes)
-    
+    # treeview close is used to help save memory on lazy-load by clearing old stuff
+    self.tree.bind('<<TreeviewClose>>', self.lazyUnloadNodes)
+
     # end file tree
     
     # start textarea
@@ -141,6 +143,10 @@ class RTFWindow:
     newpath = os.path.join(self.nodeDir, path)
     newpath = os.path.normpath(newpath) + os.sep
     self.populateNodeTree(newpath, selected_node)
+
+  def lazyUnloadNodes(self, event):
+    selected_node = self.tree.selection()
+    self.tree.delete(*self.tree.get_children(selected_node)) # clear tree from unloading node
 
   # go through the entire tree, finding the longest element in it
   # only recurse in "open" entries of the treeview, which will also save performance
