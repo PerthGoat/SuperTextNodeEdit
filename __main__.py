@@ -100,7 +100,12 @@ class RTFWindow:
     
     # bind a second callback for horizontal scroll adjustment
     self.tree.bind('<<TreeviewSelect>>', self.treeOpenClose, add='+')
-    
+
+    # bind a callback for treeview open so that lazy loading is possible
+    self.tree.bind('<<TreeviewOpen>>', self.lazyloadNodes)
+    # treeview close is used to help save memory on lazy-load by clearing old stuff
+    self.tree.bind('<<TreeviewClose>>', self.lazyUnloadNodes)
+
     # end file tree
     
     # start textarea
@@ -132,6 +137,20 @@ class RTFWindow:
     item_width = self.tkinter_font.measure(cur_name) + tree_item_padding + 5 # 5 is to give the scrollbar more breathing room
     return item_width
   
+  def lazyloadNodes(self, event):
+    selected_node = self.tree.selection()
+    path = self.get_node_path(selected_node)
+    newpath = os.path.join(self.nodeDir, path)
+    newpath = os.path.normpath(newpath) + os.sep
+    self.populateNodeTree(newpath, selected_node)
+
+  # lazy unloading counterpart, for saving memory on large notebooks
+  def lazyUnloadNodes(self, event):
+    selected_node = self.tree.selection()
+    # do the children so dropdown is still there
+    for child in self.tree.get_children(selected_node):
+      self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
+
   # go through the entire tree, finding the longest element in it
   # only recurse in "open" entries of the treeview, which will also save performance
   def visit_whole_tree(self, node):
@@ -518,7 +537,7 @@ class RTFWindow:
     return basepath
   
   # populate node tree with rtf files
-  def populateNodeTree(self):
+  def _populateNodeTree(self):
     self.tree.delete(*self.tree.get_children()) # clear current tree
     files = glob.glob(os.path.join(self.nodeDir, '**', '*.rtf'), recursive=True)
     
@@ -530,6 +549,25 @@ class RTFWindow:
     if len(self.tree.get_children()) > 0:
       self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
   
+  # new lazy-loading node tree population
+  # go 1 extra step to stop false-nodes being shown
+  def populateNodeTree(self, startPath='', currentNode=None):
+    if startPath == '':
+      startPath = self.nodeDir
+    self.tree.delete(*self.tree.get_children(currentNode)) # clear current tree
+    files = glob.glob(os.path.join(startPath, '*.rtf'))
+    files_second_level = glob.glob(os.path.join(startPath, '**', '*.rtf'))
+    files = files + files_second_level
+    
+    files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
+    
+    for fi in files:
+      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
+    
+    if len(self.tree.get_children()) > 0:
+      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
+
+
   # selects and unselects things on the tree that are clicked on
   def treeSelectUnselect(self, e): # event is used in this one
     selection = self.tree.selection()
