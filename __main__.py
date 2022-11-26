@@ -396,6 +396,8 @@ class RTFWindow:
     newWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
     entryBox = tk.Entry(newWin)
     entryBox.insert('end', node_path)
+    entryBox.selection_range(node_path.index(os.path.basename(node_path)), "end")
+    entryBox.focus()
     entryBox.place(x=100, y=40, anchor='center')
     
     tk.Button(newWin, text='rename', command=lambda: [
