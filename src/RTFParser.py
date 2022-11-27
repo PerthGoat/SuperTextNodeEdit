@@ -33,7 +33,7 @@ BLOCKOPEN: "{"
 BLOCKCLOSE: "}"
 
 // whitespace that doesn't act greedy
-WS_NOGRAB: /[ \t\f\r\n]/
+WS_NOGRAB: /[ \t\f\r\n\x00]/
 
 // %import common.WS
 '''

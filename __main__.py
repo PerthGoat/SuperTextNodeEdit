@@ -51,6 +51,9 @@ class RTFWindow:
     # how wide the treeview should be
     self.treeview_width = 230
 
+    # 1 pixel = 15 twips
+    self.rtf_img_factor = 15
+
     # track if a UI popup is open or not to prevent spawning multiple windows
     self.UI_popup = None
     
@@ -188,6 +191,10 @@ class RTFWindow:
       if r[0] == 'TEXT':
         self.text.insert('end', r[1])
       elif r[0] == 'RTFCMD': # rtf modifier commands
+        # image width and height are outliers in how they are handled
+        if r[1].startswith('picw') or r[1].startswith('pich'):
+          continue # for now don't, this is an issue for later
+
         match(r[1]):
           case 'par': # rtf's version of an explicit newline
             self.text.insert('end', '\n')
@@ -324,8 +331,10 @@ class RTFWindow:
             break
         ibytes = io.BytesIO()
         shifted_img = ImageTk.getimage(real_image)
+        imgx, imgy = shifted_img.size
+        #print(imgx, imgy)
         shifted_img.save(ibytes, 'PNG')
-        data += r'{\pict\pngblip ' + ibytes.getvalue().hex() + '}'
+        data += r'{\pict\pngblip' + f'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
       elif t[0] == 'text':
         txt = t[1]
         txt = txt.replace('\\', '\\\\').replace('{', '\{').replace('}', '\}').replace('\n', r'{\par }') # escape backslash and curly brace
