@@ -1,42 +1,11 @@
-from lark import Lark, Visitor, Token, Transformer, Discard
-from lark.visitors import Interpreter
+#from lark import Lark, Visitor, Token, Transformer, Discard
+#from lark.visitors import Interpreter
+from src.rtf_parser_standalone import Lark_StandAlone, Visitor, Token, Transformer, Discard, Interpreter
 from pprint import pprint
 import json
 
-# grammar I threw together for RTF
-# it works pretty ok
-rtf_grammar = r'''
-// initial start
-start: block WS_NOGRAB*
-
-block: BLOCKOPEN (block | command | generictext)* BLOCKCLOSE
-
-command: ESCAPE_SEQUENCE FILLER WS_NOGRAB?
-
-generictext: unicode_char | normaltext
-
-?normaltext: WS_NOGRAB | FILLER | SPECIAL_ESCAPE_CHAR | DOUBLE_ESCAPE
-
-?unicode_char: ESCAPE_SEQUENCE UNICODE_CHAR
-
-UNICODE_CHAR: "u" /[0-9]/+ "?"
-FILLER.-1: (/[^{} \t\f\r\n\\]/)+
-
-ESCAPE_SEQUENCE: "\\"
-
-DOUBLE_ESCAPE: ESCAPE_SEQUENCE ESCAPE_SEQUENCE
-
-// special escape char is for weird chars like {} that would be hard to insert into text without escaping them
-SPECIAL_ESCAPE_CHAR: ESCAPE_SEQUENCE (BLOCKOPEN | BLOCKCLOSE)
-
-BLOCKOPEN: "{"
-BLOCKCLOSE: "}"
-
-// whitespace that doesn't act greedy
-WS_NOGRAB: /[ \t\f\r\n\x00]/
-
-// %import common.WS
-'''
+# to generate parser:
+# python -m lark.tools.standalone rtf.g > rtf_parser_standalone.py
 
 class RTFParser:
     # read in rtf file
@@ -89,7 +58,7 @@ class RTFParser:
             return Token('DOUBLE_ESCAPE_RESOLVED', args.replace('\\\\', '\\'))
 
     def parseme(self):
-        rtf_parser = Lark(rtf_grammar, parser='lalr', lexer='basic')
+        rtf_parser = Lark_StandAlone() #Lark(rtf_grammar, parser='lalr', lexer='basic')
 
         parse_results = rtf_parser.parse(self.rtf_text)
 
