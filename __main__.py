@@ -48,6 +48,9 @@ class RTFWindow:
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
     
+    # how wide the treeview should be
+    self.treeview_width = 230
+
     # track if a UI popup is open or not to prevent spawning multiple windows
     self.UI_popup = None
     
@@ -87,9 +90,9 @@ class RTFWindow:
     
     ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
     
-    self.tree = ScrollableTreeView(treeFrame, width=230, selectmode='browse')
+    self.tree = ScrollableTreeView(treeFrame, width=self.treeview_width, selectmode='browse')
     self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
-    self.tree.heading('#0', text='Nodes') # set the default heading name and width
+    self.tree.heading('#0', text='Nodes', anchor='w') # set the default heading name and width
     self.tree.column('#0', anchor='w')
     
     # selecting a node will load it from a source file
@@ -173,7 +176,7 @@ class RTFWindow:
     # set the treeview tree column to the width of the biggest entry
     # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
     # which gives a horizontal scrollbar
-    self.tree.column('#0', width=biggest_node_width, stretch=False)
+    self.tree.column('#0', width=biggest_node_width if (self.treeview_width - 20) < biggest_node_width else (self.treeview_width - 20), stretch=False)
     
   def displayNestedRTFStructure(self, structure):
     lastcmd = None
