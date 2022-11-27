@@ -454,10 +454,13 @@ class RTFWindow:
     entryBox.focus()
     entryBox.place(x=100, y=40, anchor='center')
     
-    tk.Button(newWin, text='rename', command=lambda: [
+    thebutton = tk.Button(newWin, text='rename', command=lambda: [
     self.renameFileAndDir(node, node_path, entryBox.get()),
     self.killUIPopup()
-    ]).place(x=100, y=65, anchor='center')
+    ])
+    thebutton.place(x=100, y=65, anchor='center')
+
+    entryBox.bind('<Return>', lambda _: thebutton.invoke())
   
   def pasteFromClipboard(self, event):
     self.clip.open_clipboard()
