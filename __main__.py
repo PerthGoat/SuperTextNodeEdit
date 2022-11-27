@@ -375,9 +375,23 @@ class RTFWindow:
   def renameFileAndDir(self, node, old_path, new_path):
     # todo: update this to use the new populateNodeTree functionality rathre than implementing its own logic for refreshing the node tree
 
-    if old_path in new_path:
+    # nodes/Test/other
+    # nodes/Test/other/other2
+    
+    # nodes/Test/other/abc -- oldpath
+    # nodes/Test/other/def -- newpath
+
+    #print(old_path)
+    #print(new_path)
+    #print(new_path.replace(old_path, ''))
+    if new_path.replace(old_path + os.sep, '') == os.path.basename(new_path):
       messagebox.showerror("Cannot move node into itself!", "Cannot move node into itself!")
       return
+
+    if not (os.path.exists(os.path.dirname(self.nodeDir + new_path)) and os.path.isdir(self.nodeDir + os.path.dirname(new_path))):
+      messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
+      return
+
     shutil.move(self.nodeDir + old_path, self.nodeDir + new_path)
     shutil.move(self.nodeDir + old_path + '.rtf', self.nodeDir + new_path + '.rtf')
     
