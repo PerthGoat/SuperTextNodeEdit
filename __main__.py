@@ -398,11 +398,15 @@ class RTFWindow:
     shutil.move(self.nodeDir + old_path, self.nodeDir + new_path)
     shutil.move(self.nodeDir + old_path + '.rtf', self.nodeDir + new_path + '.rtf')
     
+    self.tree.item(node, text=os.path.basename(new_path))
+
+    self.tree.move(node, self.find_parent(new_path), 'end')
+
     # remove the renamed node and its children to regenerate it w/ the new name
     
     # I use deletion because then rename can be used to relocate children to different node parents
     
-    all_children = (children := list(self.tree.get_children(node)))
+    '''all_children = (children := list(self.tree.get_children(node)))
     
     while len(children) > 0:
       children = sum([list(self.tree.get_children(x)) for x in children if len(x) > 0],[])
@@ -415,8 +419,8 @@ class RTFWindow:
     
     for fi in new_paths:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
-    
-    self.tree.selection_set(self.find_self(new_paths[0]))
+    '''
+    self.tree.selection_set(node)
   
   def killUIPopup(self):
     self.UI_popup.destroy()
