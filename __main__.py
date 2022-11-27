@@ -395,40 +395,30 @@ class RTFWindow:
 
     #print(old_path)
     #print(new_path)
-    #print(new_path.replace(old_path, ''))
-    if new_path.replace(old_path + os.sep, '') == os.path.basename(new_path):
-      messagebox.showerror("Cannot move node into itself!", "Cannot move node into itself!")
-      return
+    #print(new_path.replace(old_path + os.sep, ''))
 
-    if not (os.path.exists(os.path.dirname(self.nodeDir + new_path)) and os.path.isdir(self.nodeDir + os.path.dirname(new_path))):
-      messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
-      return
+    #if not (os.path.exists(os.path.dirname(os.path.join(self.nodeDir, new_path))) and os.path.isdir(os.path.join(self.nodeDir, os.path.dirname(new_path)))):
+    #  messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
+    #  return
 
-    shutil.move(self.nodeDir + old_path, self.nodeDir + new_path)
-    shutil.move(self.nodeDir + old_path + '.rtf', self.nodeDir + new_path + '.rtf')
+    p = self.find_parent(new_path)
+
+    while True:
+      if p == node[0]:
+        messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
+        return None
+      p = self.get_node_parent(p)
+      if p == '':
+        break
+
+    shutil.move(os.path.join(self.nodeDir, old_path), os.path.join(self.nodeDir, new_path))
+    shutil.move(os.path.join(self.nodeDir, old_path + '.rtf'), os.path.join(self.nodeDir, new_path + '.rtf'))
     
     self.tree.item(node, text=os.path.basename(new_path))
 
     self.tree.move(node, self.find_parent(new_path), 'end')
 
-    # remove the renamed node and its children to regenerate it w/ the new name
-    
-    # I use deletion because then rename can be used to relocate children to different node parents
-    
-    '''all_children = (children := list(self.tree.get_children(node)))
-    
-    while len(children) > 0:
-      children = sum([list(self.tree.get_children(x)) for x in children if len(x) > 0],[])
-      all_children += children
-    
-    new_paths = [new_path] + [self.get_node_path(x).replace(old_path, new_path, 1) for x in all_children]
-    
-    self.tree.delete(*self.tree.get_children(node))
-    self.tree.delete(node)
-    
-    for fi in new_paths:
-      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi), value='')
-    '''
+
     self.tree.selection_set(node)
   
   def killUIPopup(self):
