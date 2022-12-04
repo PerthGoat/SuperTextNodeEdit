@@ -2,12 +2,12 @@
 An epic text editor written in pure Python + Tkinter, saving via the rich text format.
 
 # Warning:
-```This project is still early in development and may have bugs causing data loss, loss of compatibility with old files, introduced compatability issues with MSWORD wordpad.exe etc, and I don't recommend putting anything important in here (yet), especially if you aren't regularly backing up the RTF files somewhere else.```
+```This project is still early in development and may have bugs causing data loss, loss of compatibility with old files, and new compatability issues with rich text editors. Back up your RTF files please! I use SuperText as a daily driver for note taking at work but I'm aware it may have and has had unexpected shortcomings.```
 
 ## What does this offer?
-The design is loosely inspired by MemPad (https://www.horstmuc.de/wmem.htm) and CherryTree
+The design is loosely inspired by MemPad (https://www.horstmuc.de/wmem.htm) and CherryTree.
 
-However, there was one huge limitation with MemPad: it does not support images, or any rich text formatting for that matter. For me, that's a killer feature, 
+However, there was one huge limitation with MemPad: it does not support images, or any rich text formatting for that matter. For me, for a note-taking app, that's a killer feature, 
 especially when it comes to a node-based editor like this. In addition, MemPad is Windows only.. which sucks for everyone else.
 
 CherryTree supports a lot more in terms of images, rich text, etc, but relies on storing documents in formats that would be tricky for people to figure out, or tricky to open in platform built-in rich text editors.
