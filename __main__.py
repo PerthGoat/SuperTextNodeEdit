@@ -4,7 +4,7 @@
 # or anything complex to get it running
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, font, ttk
 
 # IO utilities
 # these handle parsing, renaming, removing, and moving the various node/file trees
@@ -93,18 +93,18 @@ class RTFWindow:
     self.tree.column('#0', anchor='w')
     
     # selecting a node will load it from a source file
-    self.tree.bind('<<TreeviewSelect>>', self.tryReadShowRTF)
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.window.after_idle(lambda : self.tryReadShowRTF(e)))
     
     # double click toggles selection on and off, to allow for making new root nodes
-    self.tree.bind('<Double-1>', self.treeSelectUnselect)
+    self.tree.bind('<Double-1>', lambda e: self.window.after_idle(lambda : self.treeSelectUnselect(e)))
     
     # bind a second callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', self.treeOpenClose, add='+')
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.window.after_idle(lambda : self.treeOpenClose(e)), add='+')
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', self.lazyloadNodes)
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.window.after_idle(lambda : self.lazyloadNodes(e)))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', self.lazyUnloadNodes)
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.window.after_idle(lambda : self.lazyUnloadNodes(e)))
 
     # end file tree
     
@@ -118,8 +118,8 @@ class RTFWindow:
     self.text = ScrollableText(textFrame, font=self.tkinter_font)
     self.text.pack(fill='both', expand='True') # text fills entire remaining space
     
-    self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
-    self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
+    self.text.bind('<Control-v>', lambda e: self.after_idle(self.pasteFromClipboard(e))) # bound to enable clipboard pasting
+    self.text.bind('<Control-c>', lambda e: self.after_idle(self.copyFromClipboard(e))) # bound to enable clipboard rich copying
     
     self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
     
@@ -139,6 +139,9 @@ class RTFWindow:
   
   def lazyloadNodes(self, event):
     selected_node = self.tree.selection()
+    if len(selected_node) == 0: # if nothing is selected
+      return 'break'
+
     path = self.get_node_path(selected_node)
     newpath = os.path.join(self.nodeDir, path)
     newpath = os.path.normpath(newpath) + os.sep
@@ -147,6 +150,9 @@ class RTFWindow:
   # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
     selected_node = self.tree.selection()
+    if len(selected_node) == 0: # if nothing is selected
+      return 'break'
+    
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
       self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
@@ -264,6 +270,9 @@ class RTFWindow:
     
     selection = self.tree.selection() # get selection
     
+    if len(selection) == 0: # if nothing is selected
+      return 'break'
+
     sel_path = self.get_node_path(selection)
     
     if sel_path == '':
@@ -594,7 +603,7 @@ class RTFWindow:
   def treeSelectUnselect(self, e): # event is used in this one
     selection = self.tree.selection()
     if len(selection) == 0: # if nothing is selected
-      return None
+      return 'break'
     
     item = self.tree.identify('item', e.x, e.y) # get item clicked on in tree
     if item in selection:
