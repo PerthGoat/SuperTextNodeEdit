@@ -4,7 +4,7 @@
 # or anything complex to get it running
 
 import tkinter as tk
-from tkinter import messagebox, font, ttk
+from tkinter import messagebox, ttk
 
 # IO utilities
 # these handle parsing, renaming, removing, and moving the various node/file trees
@@ -15,9 +15,6 @@ import shutil
 
 import configparser
 
-# multithreading used to open multiple windows and allow for popup dialogs for renaming
-from threading import Thread
-
 # PIL functions used for grabbing the clipboard in a cross-platform way
 from PIL import Image, ImageTk, ImageGrab
 
@@ -26,9 +23,6 @@ from PIL import Image, ImageTk, ImageGrab
 from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from src.RTFParser import RTFParser
-
-# for utf-8 printing
-import sys
 
 # for image copying
 from src.os_specific import Clipboard
