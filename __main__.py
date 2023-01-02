@@ -140,8 +140,8 @@ class RTFWindow:
     self.text = ScrollableText(textFrame, font=self.tkinter_font)
     self.text.pack(fill='both', expand='True') # text fills entire remaining space
     
-    self.text.bind('<Control-v>', lambda e: self.after_idle(self.pasteFromClipboard(e))) # bound to enable clipboard pasting
-    self.text.bind('<Control-c>', lambda e: self.after_idle(self.copyFromClipboard(e))) # bound to enable clipboard rich copying
+    self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
+    self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
     
     self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
     
@@ -168,7 +168,7 @@ class RTFWindow:
   def lazyloadNodes(self, event):
     selected_node = self.tree.selection()
     if len(selected_node) == 0: # if nothing is selected
-      return 'break'
+      return None
 
     path = self.get_node_path(selected_node)
     newpath = os.path.join(self.nodeDir, path)
@@ -179,7 +179,7 @@ class RTFWindow:
   def lazyUnloadNodes(self, event):
     selected_node = self.tree.selection()
     if len(selected_node) == 0: # if nothing is selected
-      return 'break'
+      return None
     
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
@@ -299,7 +299,7 @@ class RTFWindow:
     selection = self.tree.selection() # get selection
     
     if len(selection) == 0: # if nothing is selected
-      return 'break'
+      return None
 
     sel_path = self.get_node_path(selection)
     
@@ -631,14 +631,14 @@ class RTFWindow:
   def treeSelectUnselect(self, e): # event is used in this one
     selection = self.tree.selection()
     if len(selection) == 0: # if nothing is selected
-      return 'break'
+      return None
     
     item = self.tree.identify('item', e.x, e.y) # get item clicked on in tree
     if item in selection:
       self.tree.selection_remove(self.tree.selection())
       self.text.delete('1.0', 'end')
       self.openFile = ''
-      return 'break'
+      return None
 
 if __name__ == '__main__':
   dev_version_number = 1.08
