@@ -2,9 +2,15 @@
 # Tkinter
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
 # or anything complex to get it running
-
 import tkinter as tk
 from tkinter import messagebox, font, ttk
+
+# threading
+# used for action queue
+from dataclasses import dataclass, field
+import queue
+from threading import Thread
+import time
 
 # IO utilities
 # these handle parsing, renaming, removing, and moving the various node/file trees
@@ -14,9 +20,7 @@ import glob
 import shutil
 
 import configparser
-
-# multithreading used to open multiple windows and allow for popup dialogs for renaming
-from threading import Thread
+from typing import Any
 
 # PIL functions used for grabbing the clipboard in a cross-platform way
 from PIL import Image, ImageTk, ImageGrab
@@ -27,15 +31,17 @@ from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from src.RTFParser import RTFParser
 
-# for utf-8 printing
-import sys
-
 # for image copying
 from src.os_specific import Clipboard
 
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
+  @dataclass(order=True)
+  class PrioritizedItem:
+    priority: int
+    item: Any=field(compare=False)
+  
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
     
@@ -60,6 +66,11 @@ class RTFWindow:
     # set up OS specific clipboard for copying images
     self.clip = Clipboard()
     
+    # a queue to balance different types of actions
+    # has priorities, which is nice
+    # 0 = highest priority
+    self.actionQueue = queue.PriorityQueue()
+
     # create main user interface window
     self.createTkinterWindow()
   
@@ -99,18 +110,23 @@ class RTFWindow:
     self.tree.column('#0', anchor='w')
     
     # selecting a node will load it from a source file
-    self.tree.bind('<<TreeviewSelect>>', self.tryReadShowRTF)
+    # high priority
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.tryReadShowRTF(e))))
     
     # double click toggles selection on and off, to allow for making new root nodes
-    self.tree.bind('<Double-1>', self.treeSelectUnselect)
+    self.tree.bind('<Double-1>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.treeSelectUnselect(e))))
     
     # bind a second callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', self.treeOpenClose, add='+')
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.treeOpenClose(e))), add='+')
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', self.lazyloadNodes)
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.lazyloadNodes(e))))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', self.lazyUnloadNodes)
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.lazyUnloadNodes(e))))
+
+    # thread to process the action queue, for preventing race conditions from tkinter events
+    th = Thread(target=self.processActionQueueItem, daemon=True)
+    th.start()
 
     # end file tree
     
@@ -135,6 +151,12 @@ class RTFWindow:
     
     self.window.mainloop()
   
+  def processActionQueueItem(self):
+    while True:
+      itemToRun = self.actionQueue.get(block=True)
+      itemToRun.item()
+    
+
   def getNodePathLength(self, node):
     split_parts = self.get_node_path(node).split(os.sep)
     cur_name = split_parts[-1]
@@ -145,6 +167,9 @@ class RTFWindow:
   
   def lazyloadNodes(self, event):
     selected_node = self.tree.selection()
+    if len(selected_node) == 0: # if nothing is selected
+      return None
+
     path = self.get_node_path(selected_node)
     newpath = os.path.join(self.nodeDir, path)
     newpath = os.path.normpath(newpath) + os.sep
@@ -153,6 +178,9 @@ class RTFWindow:
   # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
     selected_node = self.tree.selection()
+    if len(selected_node) == 0: # if nothing is selected
+      return None
+    
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
       self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
@@ -270,6 +298,9 @@ class RTFWindow:
     
     selection = self.tree.selection() # get selection
     
+    if len(selection) == 0: # if nothing is selected
+      return None
+
     sel_path = self.get_node_path(selection)
     
     if sel_path == '':
@@ -607,7 +638,7 @@ class RTFWindow:
       self.tree.selection_remove(self.tree.selection())
       self.text.delete('1.0', 'end')
       self.openFile = ''
-      return 'break'
+      return None
 
 if __name__ == '__main__':
   dev_version_number = 1.08
