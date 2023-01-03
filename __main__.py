@@ -482,6 +482,7 @@ class RTFWindow:
     thebutton.place(x=100, y=65, anchor='center')
 
     entryBox.bind('<Return>', lambda _: thebutton.invoke())
+    entryBox.xview_moveto(1)
   
   def pasteFromClipboard(self, event):
     self.clip.open_clipboard()
