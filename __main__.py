@@ -86,9 +86,14 @@ class RTFWindow:
     
     # window design goes here
     
+    # panedwindow allows dynamic resize by user
+    panedWin = ttk.PanedWindow(self.window, orient='horizontal')
+    panedWin.pack(fill='both', expand=True)
+
     # first the file tree
-    treeFrame = tk.Frame(self.window)
-    treeFrame.grid(row=0, column=0, sticky='nsw') # not 100% fill
+    treeFrame = tk.Frame(panedWin)
+    #treeFrame.grid(row=0, column=0, sticky='nsw') # not 100% fill
+    panedWin.add(treeFrame)
     
     # buttons to manipulate tree
     buttonFrame = tk.Frame(treeFrame)
@@ -105,7 +110,7 @@ class RTFWindow:
     ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
     
     self.tree = ScrollableTreeView(treeFrame, width=self.treeview_width, selectmode='browse')
-    self.tree.pack(anchor='w', fill='y', expand=True) # treeview is anchored to the west, allowed to expand along y axis only
+    self.tree.pack(anchor='w', fill='both', expand=True) # treeview is anchored to the west
     self.tree.heading('#0', text='Nodes', anchor='w') # set the default heading name and width
     self.tree.column('#0', anchor='w')
     
@@ -131,8 +136,9 @@ class RTFWindow:
     # end file tree
     
     # start textarea
-    textFrame = tk.Frame(self.window)
-    textFrame.grid(row=0, column=1, sticky='nsew')
+    textFrame = tk.Frame(panedWin)
+    #textFrame.grid(row=0, column=1, sticky='nsew')
+    panedWin.add(textFrame)
     
     # control bar is here, only save button for now
     tk.Button(textFrame, text='save', command=self.saveRTF).pack()
