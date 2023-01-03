@@ -451,6 +451,9 @@ class RTFWindow:
 
 
     self.tree.selection_set(node)
+    node_pointer = node
+    while (node_pointer := self.get_node_parent(node_pointer)) != '':
+      self.tree.item(node_pointer, open=True)
   
   def killUIPopup(self):
     self.UI_popup.destroy()
