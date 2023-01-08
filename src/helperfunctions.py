@@ -24,6 +24,8 @@ def RenamePathToPath(src, dst):
         if curfold_src == curfold_dst:
             path_elements_src = path_elements_src[1:]
             path_elements_dst = path_elements_dst[1:]
+        else:
+            break
 
     assert len(path_elements_src) != 0
 

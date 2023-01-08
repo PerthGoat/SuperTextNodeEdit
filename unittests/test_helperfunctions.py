@@ -11,6 +11,12 @@ class TestHelperFunctions(unittest.TestCase):
         newpath = RenamePathToPath(path1, path2)
 
         self.assertEqual(os.path.normpath(path2), newpath)
+
+    def test_goodrename1(self):
+        path1 = r'nodes\newNode0\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+        path2 = r'nodes\newNode0\aa'
+        RenamePathToPath(path1, path2)
+
     def test_badrename1(self):
         path1 = r'nodes/newNode0/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.rtf'
         path2 = r'nodes\othernod\bb.rtf'

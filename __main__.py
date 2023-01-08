@@ -438,38 +438,17 @@ class RTFWindow:
   def renameFileAndDir(self, node, old_path, new_path):
     # todo: update this to use the new populateNodeTree functionality rathre than implementing its own logic for refreshing the node tree
 
-    # nodes/Test/other
-    # nodes/Test/other/other2
-    
-    # nodes/Test/other/abc -- oldpath
-    # nodes/Test/other/def -- newpath
+    old_path_withnodedir = os.path.join(self.nodeDir, old_path)
+    new_path_withnodedir = os.path.join(self.nodeDir, new_path)
 
-    #print(old_path)
-    #print(new_path)
-    #print(new_path.replace(old_path + os.sep, ''))
+    newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
 
-    #if not (os.path.exists(os.path.dirname(os.path.join(self.nodeDir, new_path))) and os.path.isdir(os.path.join(self.nodeDir, os.path.dirname(new_path)))):
-    #  messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
-    #  return
-
-    newpath = RenamePathToPath(old_path, new_path)
-
-    '''p = self.find_parent(new_path)
-
-    while True:
-      if p == node[0]:
-        messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
-        return None
-      p = self.get_node_parent(p)
-      if p == '':
-        break'''
-
-    shutil.move(os.path.join(self.nodeDir, old_path), os.path.join(self.nodeDir, newpath))
-    shutil.move(os.path.join(self.nodeDir, old_path + '.rtf'), os.path.join(self.nodeDir, newpath + '.rtf'))
+    shutil.move(old_path_withnodedir, newpath)
+    shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
     
     self.tree.item(node, text=os.path.basename(newpath))
 
-    self.tree.move(node, self.find_parent(newpath), 'end')
+    self.tree.move(node, self.find_parent(os.path.sep.join(newpath.split(os.path.sep)[1:])), 'end')
 
 
     self.tree.selection_set(node)
