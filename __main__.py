@@ -455,7 +455,11 @@ class RTFWindow:
     old_path_withnodedir = os.path.join(self.nodeDir, old_path)
     new_path_withnodedir = os.path.join(self.nodeDir, new_path)
 
-    newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
+    try:
+      newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
+    except AssertionError as e:
+      messagebox.showerror('Error Renaming Node', 'Error Renaming Node')
+      return None
 
     shutil.move(old_path_withnodedir, newpath)
     shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
