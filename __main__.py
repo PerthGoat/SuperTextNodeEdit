@@ -484,7 +484,7 @@ class RTFWindow:
     
     self.tree.item(node, text=os.path.basename(newpath))
 
-    self.tree.move(node, self.find_parent(os.path.sep.join(newpath.split(os.path.sep)[1:])), 'end')
+    self.tree.move(node, self.find_parent(newpath.replace(self.nodeDir, '')), 'end')
 
 
     self.tree.selection_set(node)
