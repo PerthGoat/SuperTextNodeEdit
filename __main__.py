@@ -71,6 +71,8 @@ class RTFWindow:
     # has priorities, which is nice
     # 0 = highest priority
     self.actionQueue = queue.PriorityQueue()
+    # idle variable to help control action queue
+    self.is_idle : bool = False
 
     # create main user interface window
     self.createTkinterWindow()
@@ -120,17 +122,17 @@ class RTFWindow:
     self.tree.column('#0', anchor='w')
     
     # bind a callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(2, lambda : self.treeOpenClose(e), "treeOpenClose")))
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(1, lambda : self.treeOpenClose(e), "treeOpenClose")))
     # selecting a node will load it from a source file
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(4, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(2, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
     
     # double click toggles selection on and off, to allow for making new root nodes
-    self.tree.bind('<Double-1>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")))
+    self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(self.PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(1, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(1, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
 
     # thread to process the action queue, for preventing race conditions from tkinter events
     th = Thread(target=self.processActionQueueItem, daemon=True)
@@ -159,6 +161,9 @@ class RTFWindow:
     # holds the currently selected node
     self.selected_node = None
 
+    # set idle flag to run initial action queue
+    self.window.after_idle(self.unsetIdle)
+
     #self.populateNodeTree() # load nodes for file tree on startup
     # add initial load for file tree nodes on startup
     self.actionQueue.put(self.PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
@@ -169,11 +174,20 @@ class RTFWindow:
     self.tkintertree_itemid += 1
     return f'ITEM_{self.tkintertree_itemid}'
 
+  def unsetIdle(self):
+    self.is_idle = True
+
   def processActionQueueItem(self):
     while True:
-      itemToRun = self.actionQueue.get(block=True)
-      print(itemToRun.priority, itemToRun.descr, self.selected_node)
-      itemToRun.item()
+      if not self.actionQueue.empty():
+        self.window.after_idle(self.unsetIdle)
+        while not self.is_idle:
+          time.sleep(0.01)
+        itemToRun = self.actionQueue.get(block=True)
+        #print(itemToRun.priority, itemToRun.descr, self.selected_node)
+        itemToRun.item()
+      else:
+        time.sleep(0.01)
     
 
   def getNodePathLength(self, node):
@@ -316,7 +330,7 @@ class RTFWindow:
   def tryReadShowRTF(self, event): # event is not used
     self.text.delete('1.0', 'end') # delete all text in textbox currently
     
-    selection = self.selected_node # get selection
+    selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
     
     if len(selection) == 0: # if nothing is selected
       return None
@@ -632,6 +646,7 @@ class RTFWindow:
     item = self.tree.identify('item', e.x, e.y) # get item clicked on in tree
     if item in selection:
       self.tree.selection_remove(self.selected_node)
+      self.selected_node = ()
       self.text.delete('1.0', 'end')
       self.openFile = ''
       return None
