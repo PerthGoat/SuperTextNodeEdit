@@ -77,12 +77,6 @@ class Clipboard:
     
     # end win32 functions
     
-    if data_type == self.RTF_NO_OBJ:
-    # set up RTF format
-      rich_format = ctypes.c_char_p(b'Rich Text Format Without Objects')
-      rich_format_id = RegisterClipboardFormatA(rich_format)
-      data_type = rich_format_id
-    
     # start clipboard copy code
     data_char_pointer = ctypes.c_char_p(data) # convert data to a C char*
     d_len = len(data)+1 # get the length of the data for copying later
@@ -97,8 +91,19 @@ class Clipboard:
     # open clipboard, None means current app
     #OpenClipboard(None)
     #EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
-    SetClipboardData(data_type, hMem) # RTF
-    
+
+    if data_type == self.RTF_NO_OBJ:
+      # set up RTF format
+      rich_format_noobj = ctypes.c_char_p(b'Rich Text Format Without Objects')
+      rich_format_id_noobj = RegisterClipboardFormatA(rich_format_noobj)
+      data_type_noobj = rich_format_id_noobj
+      rich_format_obj = ctypes.c_char_p(b'Rich Text Format')
+      rich_format_id_obj = RegisterClipboardFormatA(rich_format_obj)
+      data_type_obj = rich_format_id_obj
+      SetClipboardData(data_type_noobj, hMem) # RTF
+      SetClipboardData(data_type_obj, hMem) # RTF
+    else:
+      SetClipboardData(data_type, hMem) # Non-RTF
     GlobalFree(hMem)
     # end clipboard copy code
   
