@@ -51,6 +51,10 @@ while True:
     format_mapping_dict[data_char_pointer.value.decode('ascii')] = nextFormat
 #print(nextFormat)
 
+pprint(format_mapping_dict)
+
+exit(0)
+
 # get clipboard data
 
 GetClipboardData = ctypes.windll.user32.GetClipboardData
