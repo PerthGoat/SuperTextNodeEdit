@@ -37,6 +37,11 @@ from src.os_specific import Clipboard
 # for helper functions
 from src.helperfunctions import *
 
+BASE_CONFIG_CONST : str = r'''; config file for rtf tree program
+[constants]
+RTF_HEADER={\rtf1\ansi\pard {\fonttbl\f0\fswiss Consolas;}\f0 
+nodeDir=nodes/
+'''
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -45,10 +50,18 @@ class RTFWindow:
     priority: int
     item: Any=field(compare=False)
     descr: str=field(compare=False)
-  
+
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
     
+    # make sure a config file exists, and if not, create a base one
+    if not os.path.exists(configFile):
+      with open(configFile, 'w') as fi:
+        fi.write(BASE_CONFIG_CONST)
+
+    if not os.path.isfile(configFile):
+      messagebox.showerror('FAILOUT', 'FAILOUT: CONFIGFILE IS NOT A FILE!')
+
     config_dict = configparser.ConfigParser()
     config_dict.read(configFile)
     
@@ -159,7 +172,7 @@ class RTFWindow:
     # end textarea
     
     # holds the currently selected node
-    self.selected_node = None
+    self.selected_node = ()
 
     # set idle flag to run initial action queue
     self.window.after_idle(self.unsetIdle)
@@ -241,7 +254,7 @@ class RTFWindow:
     # set the treeview tree column to the width of the biggest entry
     # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
     # which gives a horizontal scrollbar
-    self.tree.column('#0', width=biggest_node_width, stretch=False)
+    self.tree.column('#0', width=biggest_node_width if biggest_node_width > 45 else 45, stretch=False)
     
   def displayNestedRTFStructure(self, structure):
     img_buildout_hex = '' # support for multiline image hex
@@ -424,6 +437,9 @@ class RTFWindow:
   def createNewNode(self):
     sel = self.selected_node
     
+    if len(sel) == 0:
+      sel = ()
+
     newNodeName = f'newNode{len(self.tree.get_children(sel))}'
     
     path = self.nodeDir + self.get_node_path(sel) + os.sep + newNodeName
@@ -614,6 +630,8 @@ class RTFWindow:
   
   # get the full file path of the node from the node itself
   def get_node_path(self, node):
+    if len(node) == 0:
+      return ''
     basepath = self.tree.item(node)['text']
     while (node := self.get_node_parent(node)) != '':
       upper_node = self.tree.item(node)['text']
