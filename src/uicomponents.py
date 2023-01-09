@@ -81,3 +81,4 @@ class ScrollableTreeView(tk.Frame):
     self.configure = tree.configure
     self.xview = tree.xview
     self.move = tree.move
+    self.focus = tree.focus

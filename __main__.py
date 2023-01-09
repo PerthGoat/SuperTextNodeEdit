@@ -34,6 +34,9 @@ from src.RTFParser import RTFParser
 # for image copying
 from src.os_specific import Clipboard
 
+# for helper functions
+from src.helperfunctions import *
+
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -41,6 +44,7 @@ class RTFWindow:
   class PrioritizedItem:
     priority: int
     item: Any=field(compare=False)
+    descr: str=field(compare=False)
   
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
@@ -67,6 +71,8 @@ class RTFWindow:
     # has priorities, which is nice
     # 0 = highest priority
     self.actionQueue = queue.PriorityQueue()
+    # idle variable to help control action queue
+    self.is_idle : bool = False
 
     # create main user interface window
     self.createTkinterWindow()
@@ -106,26 +112,27 @@ class RTFWindow:
     
     ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
     
+    self.tkintertree_itemid = 0
+
+
     # moving the width from a minimum width, to a starting width
     self.tree = ScrollableTreeView(treeFrame, width=230, selectmode='browse')
     self.tree.pack(anchor='w', fill='both', expand=True) # treeview is anchored to the west
     self.tree.heading('#0', text='Nodes', anchor='w') # set the default heading name and width
     self.tree.column('#0', anchor='w')
     
+    # bind a callback for horizontal scroll adjustment
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(1, lambda : self.treeOpenClose(e), "treeOpenClose")))
     # selecting a node will load it from a source file
-    # high priority
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.tryReadShowRTF(e))))
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(2, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
     
     # double click toggles selection on and off, to allow for making new root nodes
-    self.tree.bind('<Double-1>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.treeSelectUnselect(e))))
-    
-    # bind a second callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.treeOpenClose(e))), add='+')
+    self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(self.PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.lazyloadNodes(e))))
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(0, lambda : self.lazyUnloadNodes(e))))
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
 
     # thread to process the action queue, for preventing race conditions from tkinter events
     th = Thread(target=self.processActionQueueItem, daemon=True)
@@ -151,14 +158,36 @@ class RTFWindow:
     
     # end textarea
     
-    self.populateNodeTree() # load nodes for file tree on startup
+    # holds the currently selected node
+    self.selected_node = None
+
+    # set idle flag to run initial action queue
+    self.window.after_idle(self.unsetIdle)
+
+    #self.populateNodeTree() # load nodes for file tree on startup
+    # add initial load for file tree nodes on startup
+    self.actionQueue.put(self.PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
     
     self.window.mainloop()
   
+  def getNextTkinterItemId(self):
+    self.tkintertree_itemid += 1
+    return f'ITEM_{self.tkintertree_itemid}'
+
+  def unsetIdle(self):
+    self.is_idle = True
+
   def processActionQueueItem(self):
     while True:
-      itemToRun = self.actionQueue.get(block=True)
-      itemToRun.item()
+      if not self.actionQueue.empty():
+        self.window.after_idle(self.unsetIdle)
+        while not self.is_idle:
+          time.sleep(0.01)
+        itemToRun = self.actionQueue.get(block=True)
+        #print(itemToRun.priority, itemToRun.descr, self.selected_node)
+        itemToRun.item()
+      else:
+        time.sleep(0.01)
     
 
   def getNodePathLength(self, node):
@@ -170,7 +199,7 @@ class RTFWindow:
     return item_width
   
   def lazyloadNodes(self, event):
-    selected_node = self.tree.selection()
+    selected_node = self.selected_node
     if len(selected_node) == 0: # if nothing is selected
       return None
 
@@ -181,7 +210,7 @@ class RTFWindow:
 
   # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
-    selected_node = self.tree.selection()
+    selected_node = self.selected_node
     if len(selected_node) == 0: # if nothing is selected
       return None
     
@@ -207,6 +236,7 @@ class RTFWindow:
     return biggest_width
   
   def treeOpenClose(self, event):
+    self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
     biggest_node_width = self.visit_whole_tree('')
     # set the treeview tree column to the width of the biggest entry
     # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
@@ -300,7 +330,7 @@ class RTFWindow:
   def tryReadShowRTF(self, event): # event is not used
     self.text.delete('1.0', 'end') # delete all text in textbox currently
     
-    selection = self.tree.selection() # get selection
+    selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
     
     if len(selection) == 0: # if nothing is selected
       return None
@@ -390,7 +420,7 @@ class RTFWindow:
     tk.messagebox.showinfo(title='Saved file', message='Saved file')
   
   def createNewNode(self):
-    sel = self.tree.selection()
+    sel = self.selected_node
     
     newNodeName = f'newNode{len(self.tree.get_children(sel))}'
     
@@ -403,10 +433,10 @@ class RTFWindow:
     with open(file_path, 'w') as fi:
       fi.write(self.RTF_HEADER + '}')
     
-    self.tree.insert(sel, 'end', text=newNodeName, value='')
+    self.tree.insert(sel, 'end', text=newNodeName, value='', iid=self.getNextTkinterItemId())
   
   def deleteNode(self):
-    parent = self.tree.selection()
+    parent = self.selected_node
     path = self.nodeDir + self.get_node_path(parent)
     result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
     
@@ -422,39 +452,25 @@ class RTFWindow:
   def renameFileAndDir(self, node, old_path, new_path):
     # todo: update this to use the new populateNodeTree functionality rathre than implementing its own logic for refreshing the node tree
 
-    # nodes/Test/other
-    # nodes/Test/other/other2
+    old_path_withnodedir = os.path.join(self.nodeDir, old_path)
+    new_path_withnodedir = os.path.join(self.nodeDir, new_path)
+
+    try:
+      newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
+    except AssertionError as e:
+      messagebox.showerror('Error Renaming Node', 'Error Renaming Node')
+      return None
+
+    shutil.move(old_path_withnodedir, newpath)
+    shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
     
-    # nodes/Test/other/abc -- oldpath
-    # nodes/Test/other/def -- newpath
+    self.tree.item(node, text=os.path.basename(newpath))
 
-    #print(old_path)
-    #print(new_path)
-    #print(new_path.replace(old_path + os.sep, ''))
-
-    #if not (os.path.exists(os.path.dirname(os.path.join(self.nodeDir, new_path))) and os.path.isdir(os.path.join(self.nodeDir, os.path.dirname(new_path)))):
-    #  messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
-    #  return
-
-    p = self.find_parent(new_path)
-
-    while True:
-      if p == node[0]:
-        messagebox.showerror("Can't move node!", "Can't mode node into non-existing parent!")
-        return None
-      p = self.get_node_parent(p)
-      if p == '':
-        break
-
-    shutil.move(os.path.join(self.nodeDir, old_path), os.path.join(self.nodeDir, new_path))
-    shutil.move(os.path.join(self.nodeDir, old_path + '.rtf'), os.path.join(self.nodeDir, new_path + '.rtf'))
-    
-    self.tree.item(node, text=os.path.basename(new_path))
-
-    self.tree.move(node, self.find_parent(new_path), 'end')
+    self.tree.move(node, self.find_parent(os.path.sep.join(newpath.split(os.path.sep)[1:])), 'end')
 
 
     self.tree.selection_set(node)
+    self.tree.focus(item=node)
     node_pointer = node
     while (node_pointer := self.get_node_parent(node_pointer)) != '':
       self.tree.item(node_pointer, open=True)
@@ -464,7 +480,7 @@ class RTFWindow:
     self.UI_popup = None
   
   def renameNode(self):
-    node = self.tree.selection()
+    node = self.selected_node
     if len(node) == 0 or self.UI_popup != None: # if trying to rename no node
       if self.UI_popup != None:
         self.UI_popup.lift()
@@ -478,7 +494,7 @@ class RTFWindow:
     newWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
     entryBox = tk.Entry(newWin)
     entryBox.insert('end', node_path)
-    entryBox.selection_range(node_path.index(os.path.basename(node_path)), "end")
+    entryBox.selection_range(sum([len(x) + 1 for x in node_path.split(os.path.sep)[:-1]]), "end")
     entryBox.focus()
     entryBox.place(x=100, y=40, anchor='center')
     
@@ -603,23 +619,11 @@ class RTFWindow:
     
     return basepath
   
-  # populate node tree with rtf files
-  def _populateNodeTree(self):
-    self.tree.delete(*self.tree.get_children()) # clear current tree
-    files = glob.glob(os.path.join(self.nodeDir, '**', '*.rtf'), recursive=True)
-    
-    files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
-    
-    for fi in files:
-      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
-    
-    if len(self.tree.get_children()) > 0:
-      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
-  
   # new lazy-loading node tree population
   # go 1 extra step to stop false-nodes being shown
   def populateNodeTree(self, startPath='', currentNode=None):
     if startPath == '':
+      self.tkintertree_itemid = 0 # reset the tkinter tree item id counter
       startPath = self.nodeDir
     self.tree.delete(*self.tree.get_children(currentNode)) # clear current tree
     files = glob.glob(os.path.join(startPath, '*.rtf'))
@@ -629,21 +633,24 @@ class RTFWindow:
     files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
     
     for fi in files:
-      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='')
+      self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='', iid=self.getNextTkinterItemId())
     
     if len(self.tree.get_children()) > 0 and startPath == self.nodeDir:
-      self.tree.selection_set(self.tree.get_children()[0]) # default select first thing in tree
+      self.selected_node = self.tree.get_children()[0]
+      self.tree.selection_set(self.selected_node) # default select first thing in tree
+      self.tree.focus(item=self.selected_node) # focus as well
 
 
   # selects and unselects things on the tree that are clicked on
   def treeSelectUnselect(self, e): # event is used in this one
-    selection = self.tree.selection()
+    selection = self.selected_node
     if len(selection) == 0: # if nothing is selected
       return None
     
     item = self.tree.identify('item', e.x, e.y) # get item clicked on in tree
     if item in selection:
-      self.tree.selection_remove(self.tree.selection())
+      self.tree.selection_remove(self.selected_node)
+      self.selected_node = ()
       self.text.delete('1.0', 'end')
       self.openFile = ''
       return None
