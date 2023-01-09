@@ -244,6 +244,7 @@ class RTFWindow:
     self.tree.column('#0', width=biggest_node_width, stretch=False)
     
   def displayNestedRTFStructure(self, structure):
+    img_buildout_hex = '' # support for multiline image hex
     lastcmd = None
     for i, r in enumerate(structure):
       # if nested stuff exists
@@ -311,21 +312,22 @@ class RTFWindow:
             print("ERROR: I see a command but I don't know what it means!")
             print(r)          
       elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
-        if lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip': # I should probably be displaying an image here!
-          imgdata = io.BytesIO(bytes.fromhex(r[1]))
-          img = Image.open(imgdata)
-
-          self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
-
-          self.text.image_create('end', image=self.tkinter_imagelist[-1])
-          # old comment: this is the functionality word and wordpad have when encountering images, they add a newline
-          # self.text.insert('end', '\n') # it seems like this isn't needed when you are actually parsing the RTF file to spec (new RTF parser)
+        if lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip' or img_buildout_hex != '': # I should probably be displaying an image here!
+          img_buildout_hex += r[1]
         if lastcmd == None:
           print('Warning: command parameter without preceding command ' + r[1])
       else:
         print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
         print(r)
       lastcmd = r
+    
+    if img_buildout_hex != '':
+      imgdata = io.BytesIO(bytes.fromhex(img_buildout_hex.replace('\r', '').replace('\n', '')))
+      img = Image.open(imgdata)
+
+      self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
+
+      self.text.image_create('end', image=self.tkinter_imagelist[-1])
 
   def tryReadShowRTF(self, event): # event is not used
     self.text.delete('1.0', 'end') # delete all text in textbox currently
