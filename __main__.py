@@ -3,12 +3,10 @@
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
 # or anything complex to get it running
 import tkinter as tk
-from tkinter import messagebox, font, ttk
+from tkinter import font, ttk
 
 # threading
 # used for action queue
-from dataclasses import dataclass, field
-import queue
 from threading import Thread
 import time
 
@@ -37,37 +35,37 @@ from src.os_specific import Clipboard
 # for helper functions
 from src.helperfunctions import *
 
-BASE_CONFIG_CONST : str = r'''; config file for rtf tree program
-[constants]
-RTF_HEADER={\rtf1\ansi\pard {\fonttbl\f0\fswiss Consolas;}\f0 
-nodeDir=nodes/
-'''
+# constants in SuperText
+from src.constants import Constants
+
+# errorhandler
+from src.errorhandler import ErrorHandler
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
-  @dataclass(order=True)
-  class PrioritizedItem:
-    priority: int
-    item: Any=field(compare=False)
-    descr: str=field(compare=False)
-
   def __init__(self):
-    configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
-    
+
+    # initialize the error handler
+    self.errorhandler = ErrorHandler(ErrorHandler.LogSetting.DEBUG, 'logfile.log')
+
     # make sure a config file exists, and if not, create a base one
-    if not os.path.exists(configFile):
-      with open(configFile, 'w') as fi:
-        fi.write(BASE_CONFIG_CONST)
+    if not os.path.exists(Constants.configFile):
+      with open(Constants.configFile, 'w') as fi:
+        fi.write(Constants.BASE_CONFIG_CONST)
 
-    if not os.path.isfile(configFile):
-      messagebox.showerror('FAILOUT', 'FAILOUT: CONFIGFILE IS NOT A FILE!')
+    # if configfile is not a file, then it is probably a folder (or worse), and this app can't run
+    if not os.path.isfile(Constants.configFile):
+      self.errorhandler.Log('Config File does not exist, or the path is a folder. This is a fatal error.', ErrorHandler.LogLevel.Err)
+      self.errorhandler.ShowError('Fatal - No Config File', 'Config File does not exist, or the path is a folder. This is a fatal error.')
+      exit(1)
 
+    # ConfigParser, used to read options from the config file
     config_dict = configparser.ConfigParser()
-    config_dict.read(configFile)
+    config_dict.read(Constants.configFile)
     
     # set up public variables to this class
     self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
-    self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.sep # read in directory to hold RTF file tree
+    self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.path.sep # read in directory to hold RTF file tree
     self.openFile = '' # holds the currently open file for easy saving etc.
     self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
 
@@ -80,10 +78,7 @@ class RTFWindow:
     # set up OS specific clipboard for copying images
     self.clip = Clipboard()
     
-    # a queue to balance different types of actions
-    # has priorities, which is nice
-    # 0 = highest priority
-    self.actionQueue = queue.PriorityQueue()
+    
     # idle variable to help control action queue
     self.is_idle : bool = False
 
