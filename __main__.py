@@ -20,7 +20,7 @@ import glob
 import shutil
 
 import configparser
-from typing import Any
+from typing import Any, cast, TypeGuard
 
 # PIL functions used for grabbing the clipboard in a cross-platform way
 from PIL import Image, ImageTk, ImageGrab
@@ -43,14 +43,14 @@ RTF_HEADER={\rtf1\ansi\pard {\fonttbl\f0\fswiss Consolas;}\f0
 nodeDir=nodes/
 '''
 
+@dataclass(order=True)
+class PrioritizedItem:
+  priority: int
+  item: Any=field(compare=False)
+  descr: str=field(compare=False)
+
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
-  @dataclass(order=True)
-  class PrioritizedItem:
-    priority: int
-    item: Any=field(compare=False)
-    descr: str=field(compare=False)
-
   def __init__(self):
     configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
     
@@ -135,17 +135,17 @@ class RTFWindow:
     self.tree.column('#0', anchor='w')
     
     # bind a callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(1, lambda : self.treeOpenClose(e), "treeOpenClose")))
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(1, lambda : self.treeOpenClose(e), "treeOpenClose")))
     # selecting a node will load it from a source file
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(self.PrioritizedItem(2, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(2, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
     
     # double click toggles selection on and off, to allow for making new root nodes
-    self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(self.PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
+    self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(self.PrioritizedItem(3, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
 
     # thread to process the action queue, for preventing race conditions from tkinter events
     th = Thread(target=self.processActionQueueItem, daemon=True)
@@ -179,7 +179,7 @@ class RTFWindow:
 
     #self.populateNodeTree() # load nodes for file tree on startup
     # add initial load for file tree nodes on startup
-    self.actionQueue.put(self.PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
+    self.actionQueue.put(PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
     
     self.window.mainloop()
   
@@ -192,12 +192,10 @@ class RTFWindow:
 
   def processActionQueueItem(self):
     while True:
-      if not self.actionQueue.empty():
+      if not self.actionQueue.empty() and self.is_idle:
         self.window.after_idle(self.unsetIdle)
-        while not self.is_idle:
-          time.sleep(0.01)
-        itemToRun = self.actionQueue.get(block=True)
-        #print(itemToRun.priority, itemToRun.descr, self.selected_node)
+        itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get(block=True))
+        print(itemToRun.priority, itemToRun.descr, self.selected_node)
         itemToRun.item()
       else:
         time.sleep(0.01)
