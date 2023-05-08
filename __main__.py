@@ -211,7 +211,7 @@ class RTFWindow:
     return item_width
   
   def lazyloadNodes(self, event):
-    selected_node = self.selected_node
+    selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
     if len(selected_node) == 0: # if nothing is selected
       return None
 
@@ -222,14 +222,14 @@ class RTFWindow:
 
   # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
-    selected_node = self.selected_node
+    selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
     if len(selected_node) == 0: # if nothing is selected
       return None
     
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
       tree_children = self.tree.get_children(child)
-      self.tkintertree_itemid -= len(tree_children) # decrease the item id for every item removed
+      self.tkintertree_itemid -= len(tree_children) + 1 # decrease the item id for every item removed + the children of it
       self.tree.delete(*tree_children) # clear tree from unloading node
 
   # go through the entire tree, finding the longest element in it
@@ -653,10 +653,11 @@ class RTFWindow:
     
     files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
     
+    old_tree_len = len(self.tree.get_children())
     for fi in files:
       self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='', iid=self.getNextTkinterItemId())
     
-    if len(self.tree.get_children()) > 0 and startPath == self.nodeDir:
+    if old_tree_len == 0 and len(self.tree.get_children()) > 0:
       self.selected_node = self.tree.get_children()[0]
       self.tree.selection_set(self.selected_node) # default select first thing in tree
       self.tree.focus(item=self.selected_node) # focus as well
