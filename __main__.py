@@ -9,8 +9,9 @@ from tkinter import messagebox, font, ttk
 # used for action queue
 from dataclasses import dataclass, field
 import queue
-from threading import Thread
+from threading import Thread, Lock
 import time
+import datetime
 
 # IO utilities
 # these handle parsing, renaming, removing, and moving the various node/file trees
@@ -84,8 +85,7 @@ class RTFWindow:
     # has priorities, which is nice
     # 0 = highest priority
     self.actionQueue = queue.PriorityQueue()
-    # idle variable to help control action queue
-    self.is_idle : bool = False
+    self.lock : Lock = Lock()
 
     # create main user interface window
     self.createTkinterWindow()
@@ -135,21 +135,19 @@ class RTFWindow:
     self.tree.column('#0', anchor='w')
     
     # bind a callback for horizontal scroll adjustment
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(1, lambda : self.treeOpenClose(e), "treeOpenClose")))
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.treeOpenClose(e), "treeOpenClose")))
     # selecting a node will load it from a source file
-    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(2, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
+    self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(5, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
     
     # double click toggles selection on and off, to allow for making new root nodes
+    # this makes sense to run before showing the RTF file. in practice it seems like it gets into the queue first so runs first anyways
     self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
 
     # bind a callback for treeview open so that lazy loading is possible
-    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
+    # this is lower priority than lazyUnload so then it always will run after lazyUnload if they are both in the queue
+    self.tree.bind('<<TreeviewOpen>>', lambda e: self.actionQueue.put(PrioritizedItem(2, lambda : self.lazyloadNodes(e), "lazyloadNodes")))
     # treeview close is used to help save memory on lazy-load by clearing old stuff
-    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
-
-    # thread to process the action queue, for preventing race conditions from tkinter events
-    th = Thread(target=self.processActionQueueItem, daemon=True)
-    th.start()
+    self.tree.bind('<<TreeviewClose>>', lambda e: self.actionQueue.put(PrioritizedItem(1, lambda : self.lazyUnloadNodes(e), "lazyUnloadNodes")))
 
     # end file tree
     
@@ -174,8 +172,8 @@ class RTFWindow:
     # holds the currently selected node
     self.selected_node = ()
 
-    # set idle flag to run initial action queue
-    self.window.after_idle(self.unsetIdle)
+    # runs every 100ms
+    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem).start())
 
     #self.populateNodeTree() # load nodes for file tree on startup
     # add initial load for file tree nodes on startup
@@ -183,22 +181,25 @@ class RTFWindow:
     
     self.window.mainloop()
   
+  def LogWithDateTime(self, *strstolog : str):
+    print(datetime.datetime.now(), ':', *strstolog)
+
   def getNextTkinterItemId(self):
     self.tkintertree_itemid += 1
     return f'ITEM_{self.tkintertree_itemid}'
-
-  def unsetIdle(self):
-    self.is_idle = True
-
+  
   def processActionQueueItem(self):
-    while True:
-      if not self.actionQueue.empty() and self.is_idle:
-        self.window.after_idle(self.unsetIdle)
+    #self.lock.acquire(blocking=True)
+    if not self.actionQueue.empty():
+      print('')
+    while not self.actionQueue.empty():
         itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get(block=True))
-        print(itemToRun.priority, itemToRun.descr, self.selected_node)
+        self.LogWithDateTime(itemToRun.priority, itemToRun.descr, self.selected_node)
         itemToRun.item()
-      else:
-        time.sleep(0.01)
+    
+    time.sleep(0.01)
+    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem).start())
+    #self.lock.release()
     
 
   def getNodePathLength(self, node):
@@ -227,7 +228,9 @@ class RTFWindow:
     
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
-      self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
+      tree_children = self.tree.get_children(child)
+      self.tkintertree_itemid -= len(tree_children) # decrease the item id for every item removed
+      self.tree.delete(*tree_children) # clear tree from unloading node
 
   # go through the entire tree, finding the longest element in it
   # only recurse in "open" entries of the treeview, which will also save performance
