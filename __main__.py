@@ -172,6 +172,9 @@ class RTFWindow:
     # holds the currently selected node
     self.selected_node = ()
 
+    # holds all of the node item ids
+    self.item_ids : list = []
+
     # runs every 100ms
     self.window.after_idle(lambda: Thread(target=self.processActionQueueItem).start())
 
@@ -185,8 +188,14 @@ class RTFWindow:
     print(datetime.datetime.now(), ':', *strstolog)
 
   def getNextTkinterItemId(self):
-    self.tkintertree_itemid += 1
-    return f'ITEM_{self.tkintertree_itemid}'
+    # from 0 to the max item id
+    for i in range(len(self.item_ids)):
+      if self.item_ids[i] != i: # found an open item id
+        self.item_ids.insert(i, i)
+        return f'ITEM_{i}'
+    # this is if a new itemid should be added
+    self.item_ids += [len(self.item_ids)]
+    return f'ITEM_{self.item_ids[-1]}'
   
   def processActionQueueItem(self):
     #self.lock.acquire(blocking=True)
@@ -220,6 +229,13 @@ class RTFWindow:
     newpath = os.path.normpath(newpath) + os.sep
     self.populateNodeTree(newpath, selected_node)
 
+  def get_all_children(self, anode):
+    all_children = self.tree.get_children(anode)
+    for child in all_children:
+      all_children += self.get_all_children(child)
+    
+    return all_children
+
   # lazy unloading counterpart, for saving memory on large notebooks
   def lazyUnloadNodes(self, event):
     selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
@@ -228,9 +244,10 @@ class RTFWindow:
     
     # do the children so dropdown is still there
     for child in self.tree.get_children(selected_node):
-      tree_children = self.tree.get_children(child)
-      self.tkintertree_itemid -= len(tree_children) + 1 # decrease the item id for every item removed + the children of it
-      self.tree.delete(*tree_children) # clear tree from unloading node
+      children_of_child = self.get_all_children(child)
+      for c in children_of_child:
+        self.item_ids.remove(int(c.split('_')[1]))
+      self.tree.delete(*self.tree.get_children(child)) # clear tree from unloading node
 
   # go through the entire tree, finding the longest element in it
   # only recurse in "open" entries of the treeview, which will also save performance
@@ -460,6 +477,10 @@ class RTFWindow:
     result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
     
     if result == 'yes':
+      children_of_child = self.get_all_children(parent)
+      for c in children_of_child:
+        self.item_ids.remove(int(c.split('_')[1]))
+      self.item_ids.remove(int(parent.split('_')[1]))
       self.tree.delete(*self.tree.get_children(parent))
       self.tree.delete(parent)
       
@@ -646,6 +667,12 @@ class RTFWindow:
     if startPath == '':
       self.tkintertree_itemid = 0 # reset the tkinter tree item id counter
       startPath = self.nodeDir
+    
+    # always clear item ids when deleting nodes
+    children_of_child = self.get_all_children(currentNode)
+    for c in children_of_child:
+      self.item_ids.remove(int(c.split('_')[1]))
+
     self.tree.delete(*self.tree.get_children(currentNode)) # clear current tree
     files = glob.glob(os.path.join(startPath, '*.rtf'))
     files_second_level = glob.glob(os.path.join(startPath, '**', '*.rtf'))
