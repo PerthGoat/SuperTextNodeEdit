@@ -176,7 +176,8 @@ class RTFWindow:
     self.item_ids : list = []
 
     # runs every 100ms
-    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem).start())
+    # run threading on a single separate thread; this is a learning from horrific memory leaks
+    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem, daemon=True).start())
 
     #self.populateNodeTree() # load nodes for file tree on startup
     # add initial load for file tree nodes on startup
@@ -196,19 +197,17 @@ class RTFWindow:
     # this is if a new itemid should be added
     self.item_ids += [len(self.item_ids)]
     return f'ITEM_{self.item_ids[-1]}'
-  
+
   def processActionQueueItem(self):
-    #self.lock.acquire(blocking=True)
-    if not self.actionQueue.empty():
-      print('')
-    while not self.actionQueue.empty():
-        itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get(block=True))
-        self.LogWithDateTime(itemToRun.priority, itemToRun.descr, self.selected_node)
-        itemToRun.item()
-    
-    time.sleep(0.01)
-    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem).start())
-    #self.lock.release()
+    while True:
+      if not self.actionQueue.empty():
+        print('')
+      while not self.actionQueue.empty():
+          itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get(block=True))
+          self.LogWithDateTime(itemToRun.priority, itemToRun.descr, self.selected_node)
+          itemToRun.item()
+      
+      time.sleep(0.01)
     
 
   def getNodePathLength(self, node):
@@ -705,6 +704,6 @@ class RTFWindow:
       return None
 
 if __name__ == '__main__':
-  dev_version_number = 1.13
+  dev_version_number = 1.14
   print(f"SuperText Version {dev_version_number}")
   RTFWindow()
