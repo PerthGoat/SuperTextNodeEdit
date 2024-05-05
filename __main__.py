@@ -431,10 +431,10 @@ class RTFWindow:
         imgx, imgy = shifted_img.size
         #print(imgx, imgy)
         shifted_img.save(ibytes, 'PNG')
-        data += r'{\pict\pngblip' + f'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
+        data += r'{\pict\pngblip' + rf'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
       elif t[0] == 'text':
         txt = t[1]
-        txt = txt.replace('\\', '\\\\').replace('{', '\{').replace('}', '\}').replace('\n', r'{\par }') # escape backslash and curly brace
+        txt = txt.replace('\\', '\\\\').replace('{', r'\{').replace('}', r'\}').replace('\n', r'{\par }') # escape backslash and curly brace
         txt = ''.join([fr"\u{ord(c):04d}?" if ord(c) > 0x7F else c for c in txt]) # if non ASCII, then encode the character for RTF
         data += txt
     
