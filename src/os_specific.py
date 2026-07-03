@@ -16,8 +16,8 @@ class Clipboard:
     def __init__(self):
         platforms = {
             'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, self.__wingetclipboard, self.__winclearclipboard, lambda : [(lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()]],
-            'posix': [self.__linuxclipboard, None, None],
-            'darwin': [self.__macosclipboard, None, None]
+            'posix': [self.__linuxclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard, lambda : None],
+            'darwin': [self.__macosclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard, lambda : None]
         }
         #print(globals)
         platform_specific = platforms[os.name]
@@ -67,6 +67,7 @@ class Clipboard:
         
         SetClipboardData = ctypes.windll.user32.SetClipboardData
         SetClipboardData.argtypes = [ctypes.wintypes.UINT, ctypes.wintypes.HANDLE]
+        SetClipboardData.restype = ctypes.wintypes.HANDLE
         
         RegisterClipboardFormatA = ctypes.windll.user32.RegisterClipboardFormatA
         RegisterClipboardFormatA.argtypes = [ctypes.c_char_p]
@@ -77,34 +78,41 @@ class Clipboard:
         
         # end win32 functions
         
-        # start clipboard copy code
-        data_char_pointer = ctypes.c_char_p(data) # convert data to a C char*
-        d_len = len(data)+1 # get the length of the data for copying later
-        
-        # copy to private heap
-        hMem = GlobalAlloc(GMEM_MOVEABLE, d_len)
-        # copy the data input into the heap
-        # global_lock returns a void* for memcpy
-        memcpy(GlobalLock(hMem), data_char_pointer, d_len)
-        GlobalUnlock(hMem) # unlock the heap for the clipboard
-        
         # open clipboard, None means current app
         #OpenClipboard(None)
         #EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
+
+        def set_clipboard_data(data_type_id, payload):
+            data_char_pointer = ctypes.c_char_p(payload) # convert data to a C char*
+            d_len = len(payload)+1 # get the length of the data for copying later
+
+            # SetClipboardData takes ownership of the handle on success.
+            hMem = GlobalAlloc(GMEM_MOVEABLE, d_len)
+            if not hMem:
+                raise ctypes.WinError()
+
+            data_lock = GlobalLock(hMem)
+            if not data_lock:
+                GlobalFree(hMem)
+                raise ctypes.WinError()
+
+            memcpy(data_lock, data_char_pointer, d_len)
+            GlobalUnlock(hMem) # unlock the heap for the clipboard
+
+            if not SetClipboardData(data_type_id, hMem):
+                GlobalFree(hMem)
+                raise ctypes.WinError()
 
         if data_type == self.RTF_NO_OBJ:
             # set up RTF format
             rich_format_noobj = ctypes.c_char_p(b'Rich Text Format Without Objects')
             rich_format_id_noobj = RegisterClipboardFormatA(rich_format_noobj)
-            data_type_noobj = rich_format_id_noobj
             rich_format_obj = ctypes.c_char_p(b'Rich Text Format')
             rich_format_id_obj = RegisterClipboardFormatA(rich_format_obj)
-            data_type_obj = rich_format_id_obj
-            SetClipboardData(data_type_noobj, hMem) # RTF
-            SetClipboardData(data_type_obj, hMem) # RTF
+            set_clipboard_data(rich_format_id_noobj, data) # RTF
+            set_clipboard_data(rich_format_id_obj, data) # RTF
         else:
-            SetClipboardData(data_type, hMem) # Non-RTF
-        GlobalFree(hMem)
+            set_clipboard_data(data_type, data) # Non-RTF
         # end clipboard copy code
     
     def __wingetclipboardformats(self):
@@ -169,6 +177,12 @@ class Clipboard:
     
     def __macosclipboard(self):
         tk.messagebox.showerror(title='OS Unsupported', message='MacOS is not yet supported for clipboard copy')
+
+    def __noopclipboard(self):
+        pass
+
+    def __unsupportedgetclipboard(self):
+        return None
 
 '''im = Image.open(r"")
 ibytes = io.BytesIO()

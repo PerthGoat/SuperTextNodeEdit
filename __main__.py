@@ -9,8 +9,6 @@ from tkinter import messagebox, font, ttk
 # used for action queue
 from dataclasses import dataclass, field
 import queue
-from threading import Thread, Lock
-import time
 import datetime
 
 # IO utilities
@@ -30,7 +28,7 @@ from PIL import Image, ImageTk, ImageGrab
 # scrollable textboxes
 from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
-from src.RTFParser import RTFParser
+from src.RTFParser import RTFParseError, RTFParser
 
 # for image copying
 from src.os_specific import Clipboard
@@ -52,6 +50,8 @@ class PrioritizedItem:
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
+    ACTION_QUEUE_POLL_MS = 10
+
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
         self.start_worker = start_worker
@@ -86,7 +86,7 @@ class RTFWindow:
         # has priorities, which is nice
         # 0 = highest priority
         self.actionQueue = queue.PriorityQueue()
-        self.lock : Lock = Lock()
+        self._queue_after_id = None
 
         # create main user interface window
         self.createTkinterWindow()
@@ -176,14 +176,14 @@ class RTFWindow:
         # holds all of the node item ids
         self.item_ids : list = []
 
-        # runs every 100ms
-        # run threading on a single separate thread; this is a learning from horrific memory leaks
-        if self.start_worker:
-            self.window.after_idle(lambda: Thread(target=self.processActionQueueItem, daemon=True).start())
-
         #self.populateNodeTree() # load nodes for file tree on startup
         # add initial load for file tree nodes on startup
         self.actionQueue.put(PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
+
+        # Tk widgets are not thread-safe, so queued UI work is drained from the
+        # Tk event loop instead of a background thread.
+        if self.start_worker:
+            self._queue_after_id = self.window.after_idle(self.processActionQueueItem)
         
         if self.start_mainloop:
             self.window.mainloop()
@@ -202,15 +202,48 @@ class RTFWindow:
         return f'ITEM_{self.item_ids[-1]}'
 
     def processActionQueueItem(self):
-        while True:
+        try:
             if not self.actionQueue.empty():
                 print('')
             while not self.actionQueue.empty():
-                    itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get(block=True))
+                itemToRun : PrioritizedItem = cast(PrioritizedItem, self.actionQueue.get_nowait())
+                try:
                     self.LogWithDateTime(itemToRun.priority, itemToRun.descr, self.selected_node)
                     itemToRun.item()
-            
-            time.sleep(0.01)
+                finally:
+                    self.actionQueue.task_done()
+        finally:
+            self._scheduleActionQueueProcessing()
+
+    def _scheduleActionQueueProcessing(self):
+        if not self.start_worker:
+            return
+
+        try:
+            if self.window.winfo_exists():
+                self._queue_after_id = self.window.after(
+                    self.ACTION_QUEUE_POLL_MS,
+                    self.processActionQueueItem,
+                )
+        except tk.TclError:
+            self._queue_after_id = None
+
+    def _node_root_path(self):
+        return os.path.abspath(os.path.normpath(self.nodeDir))
+
+    def resolveNodePath(self, relative_path):
+        root = self._node_root_path()
+        candidate = os.path.abspath(os.path.normpath(os.path.join(root, relative_path)))
+
+        try:
+            common_path = os.path.commonpath([root, candidate])
+        except ValueError as exc:
+            raise ValueError("Node path must stay inside the node directory") from exc
+
+        if os.path.normcase(common_path) != os.path.normcase(root):
+            raise ValueError("Node path must stay inside the node directory")
+
+        return candidate
         
 
     def getNodePathLength(self, node):
@@ -345,7 +378,7 @@ class RTFWindow:
                         print("ERROR: I see a command but I don't know what it means!")
                         print(r)          
             elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
-                if lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip' or img_buildout_hex != '': # I should probably be displaying an image here!
+                if (lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip') or img_buildout_hex != '': # I should probably be displaying an image here!
                     img_buildout_hex += r[1]
                 if lastcmd == None:
                     print('Warning: command parameter without preceding command ' + r[1])
@@ -355,8 +388,12 @@ class RTFWindow:
             lastcmd = r
         
         if img_buildout_hex != '':
-            imgdata = io.BytesIO(bytes.fromhex(img_buildout_hex.replace('\r', '').replace('\n', '')))
-            img = Image.open(imgdata)
+            try:
+                imgdata = io.BytesIO(bytes.fromhex(img_buildout_hex.replace('\r', '').replace('\n', '')))
+                img = Image.open(imgdata)
+            except (OSError, ValueError) as exc:
+                print(f'ERROR: Could not load embedded image: {exc}')
+                return None
 
             self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
 
@@ -375,32 +412,51 @@ class RTFWindow:
         if sel_path == '':
             return None
         
-        node_path = self.nodeDir + sel_path + '.rtf'
-        
-        self.openFile = node_path
+        node_path = self.resolveNodePath(sel_path) + '.rtf'
         
         try:
-            with open(self.openFile, 'r', encoding='utf-8') as fi:
+            with open(node_path, 'r', encoding='utf-8') as fi:
                 data = fi.read()
         except UnicodeDecodeError:
-            with open(self.openFile, 'r') as fi:
+            with open(node_path, 'r') as fi:
                 data = fi.read()
+        except OSError as exc:
+            self.openFile = ''
+            messagebox.showerror('Error Reading Node', f'Could not read node file: {exc}')
+            return None
+
         # parse the RTF using the RTF parser
-        rt = RTFParser(data).parseme()
+        try:
+            rt = RTFParser(data).parseme()
+        except RTFParseError as exc:
+            self.openFile = ''
+            messagebox.showerror('Error Reading Node', f'Could not parse node RTF: {exc}')
+            return None
 
         # verify the header matches the expected for an RTF that this program can read
-        assert rt[0][0] == 'RTFCMD' and rt[0][1] == 'rtf1'
-        assert rt[1][0] == 'RTFCMD' and rt[1][1] == 'ansi'
-        assert rt[2][0] == 'RTFCMD' and rt[2][1] == 'pard'
-        assert len(rt[3]) == 4 # font selection is half-baked
-        assert rt[4][0] == 'RTFCMD' and rt[4][1] == 'f0'
+        if not self.isSupportedRTF(rt):
+            self.openFile = ''
+            messagebox.showerror('Error Reading Node', 'Unsupported RTF header')
+            return None
         
         # all header checks have passed
+        self.openFile = node_path
         
         # clear existing images from image list
         self.tkinter_imagelist = []
 
         self.displayNestedRTFStructure(rt)
+
+    def isSupportedRTF(self, rt):
+        return (
+            len(rt) >= 5
+            and rt[0] == ('RTFCMD', 'rtf1')
+            and rt[1] == ('RTFCMD', 'ansi')
+            and rt[2] == ('RTFCMD', 'pard')
+            and isinstance(rt[3], list)
+            and len(rt[3]) == 4 # font selection is half-baked
+            and rt[4] == ('RTFCMD', 'f0')
+        )
     
     # convert a text selection to RTF
     # start to finish of selection
@@ -419,7 +475,7 @@ class RTFWindow:
         
         # if there is a trailing newline, remove it
         # tkinter sometimes randomly adds a newline to the text dump
-        if textContents[-1][0] == 'text' and textContents[-1][1] == '\n':
+        if textContents and textContents[-1][0] == 'text' and textContents[-1][1] == '\n':
             textContents = textContents[:-1]
         
         for i, t in enumerate(textContents):
@@ -449,6 +505,8 @@ class RTFWindow:
     # save an RTF file that is open
     def saveRTF(self):
         data = self.convertToRTF('1.0', 'end')
+        if data is None:
+            return None
         with open(self.openFile, 'w', encoding='utf-8') as fi:
             fi.write(data)
         
@@ -462,7 +520,7 @@ class RTFWindow:
 
         newNodeName = f'newNode{len(self.tree.get_children(sel))}'
         
-        path = self.nodeDir + self.get_node_path(sel) + os.sep + newNodeName
+        path = self.resolveNodePath(os.path.join(self.get_node_path(sel), newNodeName))
         file_path = path + '.rtf'
         
         # create the new dir to go with the new file
@@ -475,7 +533,10 @@ class RTFWindow:
     
     def deleteNode(self):
         parent = self.selected_node
-        path = self.nodeDir + self.get_node_path(parent)
+        if len(parent) == 0:
+            return None
+
+        path = self.resolveNodePath(self.get_node_path(parent))
         result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
         
         if result == 'yes':
@@ -492,12 +553,11 @@ class RTFWindow:
             pass
     
     def renameFileAndDir(self, node, old_path, new_path):
-        old_path_withnodedir = os.path.join(self.nodeDir, old_path)
-        new_path_withnodedir = os.path.join(self.nodeDir, new_path)
-
         try:
+            old_path_withnodedir = self.resolveNodePath(old_path)
+            new_path_withnodedir = self.resolveNodePath(new_path)
             newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
-        except AssertionError as e:
+        except (AssertionError, ValueError) as e:
             messagebox.showerror('Error Renaming Node', 'Error Renaming Node')
             return None
 
@@ -505,12 +565,12 @@ class RTFWindow:
         shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
         
         old_parent_path = os.path.dirname(os.path.normpath(old_path))
-        relative_newpath = os.path.normpath(newpath.replace(self.nodeDir, ''))
+        relative_newpath = os.path.relpath(newpath, self._node_root_path())
         new_parent_path = os.path.dirname(relative_newpath)
 
         def refresh_parent(parent_path):
             parent_node = self.find_self(parent_path) if parent_path else ''
-            parent_fullpath = os.path.join(self.nodeDir, parent_path) if parent_path else self.nodeDir
+            parent_fullpath = self.resolveNodePath(parent_path) if parent_path else self._node_root_path()
             self.populateNodeTree(parent_fullpath, parent_node)
 
         refresh_parent(old_parent_path)
@@ -688,7 +748,7 @@ class RTFWindow:
         files_second_level = glob.glob(os.path.join(startPath, '**', '*.rtf'))
         files = files + files_second_level
         
-        files = [os.path.normpath(x).replace(self.nodeDir, '') for x in files]
+        files = [os.path.relpath(os.path.abspath(os.path.normpath(x)), self._node_root_path()) for x in files]
         
         old_tree_len = len(self.tree.get_children())
         for fi in files:

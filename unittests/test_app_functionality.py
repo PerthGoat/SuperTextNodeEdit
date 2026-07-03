@@ -3,6 +3,7 @@ import importlib.util
 import os
 from pathlib import Path
 import tempfile
+import threading
 import tkinter as tk
 import unittest
 from unittest import mock
@@ -148,6 +149,40 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue((self.node_dir / "renamedNode.rtf").is_file())
         self.assertEqual("renamedNode", self.window.tree.item(self.window.selected_node)["text"])
         self.assertEqual("renamedNode", self.window.get_node_path(self.window.selected_node))
+
+    def test_rename_rejects_paths_outside_node_directory(self):
+        self.write_node("newNode33", "Node text")
+        outside_dir = self.root / "outside"
+        outside_dir.mkdir()
+        self.window.populateNodeTree()
+        node = self.window.find_self("newNode33")
+
+        with mock.patch.object(app.messagebox, "showerror") as showerror:
+            self.window.renameFileAndDir(node, "newNode33", str(outside_dir / "escapedNode"))
+
+        showerror.assert_called_once()
+        self.assertTrue((self.node_dir / "newNode33").is_dir())
+        self.assertTrue((self.node_dir / "newNode33.rtf").is_file())
+        self.assertFalse((outside_dir / "escapedNode").exists())
+        self.assertFalse((outside_dir / "escapedNode.rtf").exists())
+
+    def test_action_queue_drains_on_calling_thread_without_reschedule_when_disabled(self):
+        calling_thread = threading.get_ident()
+        seen_threads = []
+
+        self.window.actionQueue.put(
+            app.PrioritizedItem(
+                0,
+                lambda: seen_threads.append(threading.get_ident()),
+                "captureThread",
+            )
+        )
+
+        with mock.patch("builtins.print"), mock.patch.object(self.window, "LogWithDateTime"):
+            self.window.processActionQueueItem()
+
+        self.assertEqual([calling_thread], seen_threads)
+        self.assertIsNone(self.window._queue_after_id)
 
     def test_convert_to_rtf_escapes_text_newlines_and_unicode(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
