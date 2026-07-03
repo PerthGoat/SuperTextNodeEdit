@@ -56,6 +56,7 @@ class RTFWindow:
     DEFAULT_FONT_FAMILY = "Consolas"
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
+    TEXT_CURSOR = 'xterm'
     IMAGE_RESIZE_HANDLE_SIZE = 8
     IMAGE_RESIZE_MIN_SIZE = 8
 
@@ -81,6 +82,7 @@ class RTFWindow:
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
         self.embedded_images = {}
         self.image_resize_state = None
+        self.current_text_cursor = self.TEXT_CURSOR
 
         # 1 pixel = 15 twips
         self.rtf_img_factor = 15
@@ -183,7 +185,7 @@ class RTFWindow:
         #textFrame.grid(row=0, column=1, sticky='nsew')
         panedWin.add(textFrame)
         
-        self.text = ScrollableText(textFrame, font=self.tkinter_font)
+        self.text = ScrollableText(textFrame, font=self.tkinter_font, cursor=self.TEXT_CURSOR)
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
         
         self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
@@ -974,17 +976,23 @@ class RTFWindow:
         return ''
 
     def configureTextCursor(self, cursor):
+        cursor = cursor or self.TEXT_CURSOR
+        if cursor == self.current_text_cursor:
+            return None
+
         try:
             self.text.configure(cursor=cursor)
         except tk.TclError:
-            self.text.configure(cursor='fleur' if cursor else '')
+            self.text.configure(cursor='fleur')
+
+        self.current_text_cursor = cursor
 
     def updateImageResizeCursor(self, event):
         if self.image_resize_state is not None:
             return None
 
         hit = self.imageResizeHitAtPoint(event.x, event.y)
-        self.configureTextCursor(self.imageResizeCursor(hit["handle"]) if hit else '')
+        self.configureTextCursor(self.imageResizeCursor(hit["handle"]) if hit else self.TEXT_CURSOR)
         return None
 
     def beginImageResize(self, event):

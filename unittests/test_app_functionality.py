@@ -2,6 +2,7 @@ import configparser
 import importlib.util
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import threading
 import tkinter as tk
@@ -322,6 +323,17 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(print_mock.called)
         printed = " ".join(str(arg) for call in print_mock.call_args_list for arg in call.args)
         self.assertNotIn("non-hexadecimal", printed)
+
+    def test_text_motion_restores_text_cursor_without_reconfiguring_repeatedly(self):
+        self.window.current_text_cursor = "sb_h_double_arrow"
+        event = SimpleNamespace(x=5, y=5)
+
+        with mock.patch.object(self.window.text, "configure", wraps=self.window.text.configure) as configure_mock:
+            self.window.updateImageResizeCursor(event)
+            self.window.updateImageResizeCursor(event)
+
+        configure_mock.assert_called_once_with(cursor=self.window.TEXT_CURSOR)
+        self.assertEqual(self.window.TEXT_CURSOR, self.window.current_text_cursor)
 
 
 if __name__ == "__main__":
