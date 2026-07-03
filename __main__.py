@@ -56,6 +56,8 @@ class RTFWindow:
     DEFAULT_FONT_FAMILY = "Consolas"
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
+    IMAGE_RESIZE_HANDLE_SIZE = 8
+    IMAGE_RESIZE_MIN_SIZE = 8
 
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
@@ -77,6 +79,8 @@ class RTFWindow:
         self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.sep # read in directory to hold RTF file tree
         self.openFile = '' # holds the currently open file for easy saving etc.
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
+        self.embedded_images = {}
+        self.image_resize_state = None
 
         # 1 pixel = 15 twips
         self.rtf_img_factor = 15
@@ -190,6 +194,10 @@ class RTFWindow:
         self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
+        self.text.bind('<Motion>', self.updateImageResizeCursor, add='+')
+        self.text.bind('<ButtonPress-1>', self.beginImageResize, add='+')
+        self.text.bind('<B1-Motion>', self.dragImageResize, add='+')
+        self.text.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
         
         self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
         
@@ -831,6 +839,241 @@ class RTFWindow:
 
         return ''.join(hex_chunks)
 
+    def createEmbeddedImage(self, index, pil_image):
+        source_image = pil_image.copy()
+        tk_image = ImageTk.PhotoImage(source_image)
+        self.tkinter_imagelist.append(tk_image)
+        embedded_name = self.text.image_create(index, image=tk_image)
+        self.embedded_images[embedded_name] = {
+            "original": source_image,
+            "photo": tk_image,
+        }
+        return embedded_name
+
+    def findTkImageByName(self, image_name):
+        for tk_image in self.tkinter_imagelist:
+            if str(tk_image) == image_name:
+                return tk_image
+        return None
+
+    def getPhotoImageForEmbeddedImage(self, embedded_name):
+        image_data = self.embedded_images.get(embedded_name)
+        if image_data is not None:
+            return image_data["photo"]
+
+        try:
+            current_image_name = self.text.image_cget(embedded_name, 'image')
+        except tk.TclError:
+            current_image_name = embedded_name
+
+        return self.findTkImageByName(current_image_name)
+
+    def resizeEmbeddedImage(self, embedded_name, width, height):
+        width = max(self.IMAGE_RESIZE_MIN_SIZE, int(round(width)))
+        height = max(self.IMAGE_RESIZE_MIN_SIZE, int(round(height)))
+
+        image_data = self.embedded_images.get(embedded_name)
+        if image_data is None:
+            current_photo = self.getPhotoImageForEmbeddedImage(embedded_name)
+            if current_photo is None:
+                return None
+
+            image_data = {
+                "original": ImageTk.getimage(current_photo).copy(),
+                "photo": current_photo,
+            }
+            self.embedded_images[embedded_name] = image_data
+
+        original_image = image_data["original"]
+        resampling_filter = getattr(
+            getattr(Image, "Resampling", Image),
+            "LANCZOS",
+            Image.BICUBIC,
+        )
+        resized_image = original_image.resize((width, height), resampling_filter)
+        resized_photo = ImageTk.PhotoImage(resized_image)
+        old_photo = image_data["photo"]
+
+        self.text.image_configure(embedded_name, image=resized_photo)
+        image_data["photo"] = resized_photo
+        self.tkinter_imagelist.append(resized_photo)
+        if old_photo in self.tkinter_imagelist:
+            self.tkinter_imagelist.remove(old_photo)
+
+        return resized_photo
+
+    def imageResizeHandleAtPoint(self, x, y, bbox):
+        bbox_x, bbox_y, bbox_width, bbox_height = bbox
+        handle_size = self.IMAGE_RESIZE_HANDLE_SIZE
+        near_left = abs(x - bbox_x) <= handle_size
+        near_right = abs(x - (bbox_x + bbox_width)) <= handle_size
+        near_top = abs(y - bbox_y) <= handle_size
+        near_bottom = abs(y - (bbox_y + bbox_height)) <= handle_size
+
+        if not (near_left or near_right or near_top or near_bottom):
+            return None
+
+        if near_left and near_top:
+            return 'nw'
+        if near_right and near_top:
+            return 'ne'
+        if near_left and near_bottom:
+            return 'sw'
+        if near_right and near_bottom:
+            return 'se'
+        if near_left:
+            return 'w'
+        if near_right:
+            return 'e'
+        if near_top:
+            return 'n'
+        if near_bottom:
+            return 's'
+
+        return None
+
+    def imageResizeHitAtPoint(self, x, y):
+        for token_type, token_value, token_index in self.text.dump('1.0', 'end'):
+            if token_type != 'image':
+                continue
+
+            bbox = self.text.bbox(token_index)
+            if bbox is None:
+                continue
+
+            bbox_x, bbox_y, bbox_width, bbox_height = bbox
+            handle_size = self.IMAGE_RESIZE_HANDLE_SIZE
+            if not (
+                bbox_x - handle_size <= x <= bbox_x + bbox_width + handle_size
+                and bbox_y - handle_size <= y <= bbox_y + bbox_height + handle_size
+            ):
+                continue
+
+            handle = self.imageResizeHandleAtPoint(x, y, bbox)
+            if handle is None:
+                continue
+
+            return {
+                "name": token_value,
+                "index": token_index,
+                "bbox": bbox,
+                "handle": handle,
+            }
+
+        return None
+
+    def imageResizeCursor(self, handle):
+        if handle in {'e', 'w'}:
+            return 'sb_h_double_arrow'
+        if handle in {'n', 's'}:
+            return 'sb_v_double_arrow'
+        if handle in {'nw', 'se'}:
+            return 'size_nw_se'
+        if handle in {'ne', 'sw'}:
+            return 'size_ne_sw'
+        return ''
+
+    def configureTextCursor(self, cursor):
+        try:
+            self.text.configure(cursor=cursor)
+        except tk.TclError:
+            self.text.configure(cursor='fleur' if cursor else '')
+
+    def updateImageResizeCursor(self, event):
+        if self.image_resize_state is not None:
+            return None
+
+        hit = self.imageResizeHitAtPoint(event.x, event.y)
+        self.configureTextCursor(self.imageResizeCursor(hit["handle"]) if hit else '')
+        return None
+
+    def beginImageResize(self, event):
+        hit = self.imageResizeHitAtPoint(event.x, event.y)
+        if hit is None:
+            self.image_resize_state = None
+            return None
+
+        photo_image = self.getPhotoImageForEmbeddedImage(hit["name"])
+        if photo_image is None:
+            return None
+
+        pil_image = ImageTk.getimage(photo_image)
+        width, height = pil_image.size
+        self.image_resize_state = {
+            "name": hit["name"],
+            "index": hit["index"],
+            "handle": hit["handle"],
+            "start_x": event.x,
+            "start_y": event.y,
+            "start_width": width,
+            "start_height": height,
+        }
+        self.text.mark_set('insert', hit["index"])
+        return 'break'
+
+    def calculateImageResizeSize(self, resize_state, current_x, current_y, preserve_aspect):
+        handle = resize_state["handle"]
+        width = resize_state["start_width"]
+        height = resize_state["start_height"]
+        dx = current_x - resize_state["start_x"]
+        dy = current_y - resize_state["start_y"]
+
+        if 'e' in handle:
+            width += dx
+        elif 'w' in handle:
+            width -= dx
+
+        if 's' in handle:
+            height += dy
+        elif 'n' in handle:
+            height -= dy
+
+        width = max(self.IMAGE_RESIZE_MIN_SIZE, width)
+        height = max(self.IMAGE_RESIZE_MIN_SIZE, height)
+
+        if preserve_aspect:
+            aspect_ratio = resize_state["start_width"] / resize_state["start_height"]
+            resizes_width = 'e' in handle or 'w' in handle
+            resizes_height = 'n' in handle or 's' in handle
+
+            if resizes_width and not resizes_height:
+                height = width / aspect_ratio
+            elif resizes_height and not resizes_width:
+                width = height * aspect_ratio
+            else:
+                width_scale = width / resize_state["start_width"]
+                height_scale = height / resize_state["start_height"]
+                if abs(width_scale - 1) >= abs(height_scale - 1):
+                    height = width / aspect_ratio
+                else:
+                    width = height * aspect_ratio
+
+        return (
+            max(self.IMAGE_RESIZE_MIN_SIZE, int(round(width))),
+            max(self.IMAGE_RESIZE_MIN_SIZE, int(round(height))),
+        )
+
+    def dragImageResize(self, event):
+        if self.image_resize_state is None:
+            return None
+
+        width, height = self.calculateImageResizeSize(
+            self.image_resize_state,
+            event.x,
+            event.y,
+            bool(event.state & 0x0001),
+        )
+        self.resizeEmbeddedImage(self.image_resize_state["name"], width, height)
+        return 'break'
+
+    def finishImageResize(self, event):
+        if self.image_resize_state is None:
+            return None
+
+        self.image_resize_state = None
+        self.updateImageResizeCursor(event)
+        return 'break'
+
     def displayRTFImageGroup(self, structure):
         img_buildout_hex = self.extractRTFImageHex(structure)
 
@@ -844,8 +1087,7 @@ class RTFWindow:
             print(f'ERROR: Could not load embedded image: {exc}')
             return None
 
-        self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
-        self.text.image_create('end', image=self.tkinter_imagelist[-1])
+        self.createEmbeddedImage('end', img)
 
         return None
 
@@ -965,6 +1207,8 @@ class RTFWindow:
         
         # clear existing images from image list
         self.tkinter_imagelist = []
+        self.embedded_images = {}
+        self.image_resize_state = None
 
         self.displayNestedRTFStructure(rt)
 
@@ -1076,11 +1320,7 @@ class RTFWindow:
                 continue
 
             if token_type == 'image':
-                real_image = None
-                for img in self.tkinter_imagelist:
-                    if str(img) == token_value:
-                        real_image = img
-                        break
+                real_image = self.getPhotoImageForEmbeddedImage(token_value)
 
                 if real_image is None:
                     continue
@@ -1268,15 +1508,12 @@ class RTFWindow:
             
             if type(clipimg) == list:
                 for img in clipimg:
-                    self.tkinter_imagelist += [ImageTk.PhotoImage(Image.open(img))]
-            
-                    self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+                    with Image.open(img) as opened_image:
+                        self.createEmbeddedImage('insert', opened_image)
                 
                 return None
             
-            self.tkinter_imagelist += [ImageTk.PhotoImage(clipimg)]
-            
-            self.text.image_create('insert', image=self.tkinter_imagelist[-1])
+            self.createEmbeddedImage('insert', clipimg)
         else: # rtf data on the clipboard
             # parse it and display it as normal, to facilitate being able to copy-paste within SuperText
             parsed_clip = RTFParser(clip_rtf_data).parseme()
@@ -1313,8 +1550,9 @@ class RTFWindow:
             except UnicodeEncodeError:
                 self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
         elif len(imgs_in_selection) > 0:
-            for tkimg in self.tkinter_imagelist:
-                if str(tkimg) in imgs_in_selection:
+            for embedded_image in imgs_in_selection:
+                tkimg = self.getPhotoImageForEmbeddedImage(embedded_image)
+                if tkimg is not None:
                     ImageTk.getimage(tkimg).save(ibytes, 'DIB')
                     self.clip.set_clipboard(ibytes.getvalue(), self.clip.BITMAP)
                     break

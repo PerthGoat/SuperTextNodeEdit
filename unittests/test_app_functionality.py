@@ -216,6 +216,36 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(r"Hello ", rtf)
         self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
+    def test_resized_embedded_image_exports_resized_dimensions(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        embedded_name = self.window.createEmbeddedImage(
+            "1.0",
+            app.Image.new("RGB", (40, 20), "red"),
+        )
+
+        self.window.resizeEmbeddedImage(embedded_name, 80, 40)
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"\picw1200\pich600", rtf)
+
+    def test_shift_image_resize_preserves_aspect_ratio(self):
+        resize_state = {
+            "handle": "se",
+            "start_x": 10,
+            "start_y": 10,
+            "start_width": 40,
+            "start_height": 20,
+        }
+
+        width, height = self.window.calculateImageResizeSize(
+            resize_state,
+            70,
+            20,
+            preserve_aspect=True,
+        )
+
+        self.assertEqual((100, 50), (width, height))
+
     def test_toolbar_size_updates_from_current_selection(self):
         self.window.text.insert("1.0", "Small Big")
         self.window.applyStylePropertyToRange("1.0", "1.5", "font_size", 10)
