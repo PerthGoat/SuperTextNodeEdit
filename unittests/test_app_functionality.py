@@ -196,6 +196,59 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(rtf.startswith(self.window.RTF_HEADER))
         self.assertTrue(rtf.endswith("}"))
 
+    def test_convert_to_rtf_exports_selected_text_formatting(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Hello World")
+        self.window.text.tag_add("sel", "1.6", "1.11")
+
+        self.window.font_family_var.set("Arial")
+        self.window.applySelectedFontFamily()
+        self.window.font_size_var.set(18)
+        self.window.applySelectedFontSize()
+        self.window.applyStylePropertyToSelection("color", "#ff0000")
+
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}", rtf)
+        self.assertIn(r"{\colortbl ;\red255\green0\blue0;}", rtf)
+        self.assertIn(r"Hello ", rtf)
+        self.assertIn(r"{\f1\fs36\cf1 World}", rtf)
+
+    def test_display_nested_rtf_structure_imports_text_formatting(self):
+        rtf_text = (
+            r"{\rtf1\ansi\pard "
+            r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}"
+            r"{\colortbl ;\red255\green0\blue0;}"
+            r"\f0\fs24 Plain {\f1\fs32\cf1 Fancy}}"
+        )
+
+        parsed = app.RTFParser(rtf_text).parseme()
+        self.assertTrue(self.window.isSupportedRTF(parsed))
+
+        self.window.displayNestedRTFStructure(parsed)
+
+        self.assertEqual("Plain Fancy\n", self.window.text.get("1.0", "end"))
+        fancy_style = self.window.getTextStyleAt("1.7")
+        self.assertEqual("Arial", fancy_style["font_family"])
+        self.assertEqual(16, fancy_style["font_size"])
+        self.assertEqual("#ff0000", fancy_style["color"])
+
+    def test_display_nested_rtf_structure_only_decodes_actual_picture_group(self):
+        rtf_text = (
+            r"{\rtf1\ansi\pard {\fonttbl{\f0\fswiss Consolas;}}\f0 "
+            r"Prefix {\pict\pngblip\picw1\pich1 00} Suffix}"
+        )
+
+        parsed = app.RTFParser(rtf_text).parseme()
+
+        with mock.patch("builtins.print") as print_mock:
+            self.window.displayNestedRTFStructure(parsed)
+
+        self.assertEqual("Prefix  Suffix\n", self.window.text.get("1.0", "end"))
+        self.assertTrue(print_mock.called)
+        printed = " ".join(str(arg) for call in print_mock.call_args_list for arg in call.args)
+        self.assertNotIn("non-hexadecimal", printed)
+
 
 if __name__ == "__main__":
     unittest.main()

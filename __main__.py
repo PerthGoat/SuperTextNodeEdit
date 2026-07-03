@@ -3,7 +3,7 @@
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
 # or anything complex to get it running
 import tkinter as tk
-from tkinter import messagebox, font, ttk
+from tkinter import colorchooser, messagebox, font, ttk
 
 # threading
 # used for action queue
@@ -19,6 +19,7 @@ import glob
 import shutil
 
 import configparser
+import re
 from typing import Any, cast, TypeGuard
 
 # PIL functions used for grabbing the clipboard in a cross-platform way
@@ -51,6 +52,10 @@ class PrioritizedItem:
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
     ACTION_QUEUE_POLL_MS = 10
+    FORMAT_TAG_PREFIX = "rtf_style_"
+    DEFAULT_FONT_FAMILY = "Consolas"
+    DEFAULT_FONT_SIZE = 12
+    DEFAULT_TEXT_COLOR = None
 
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
@@ -75,6 +80,12 @@ class RTFWindow:
 
         # 1 pixel = 15 twips
         self.rtf_img_factor = 15
+
+        self.font_table = {0: self.DEFAULT_FONT_FAMILY}
+        self.color_table = {0: self.DEFAULT_TEXT_COLOR}
+        self.style_tags = {}
+        self.style_tag_names = {}
+        self.style_tag_counter = 0
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
@@ -158,7 +169,59 @@ class RTFWindow:
         panedWin.add(textFrame)
         
         # control bar is here, only save button for now
-        tk.Button(textFrame, text='save', command=self.saveRTF).pack()
+        controlFrame = tk.Frame(textFrame)
+        controlFrame.pack(fill='x', anchor='w')
+
+        tk.Button(controlFrame, text='save', command=self.saveRTF).pack(side='left')
+
+        available_fonts = sorted(set(font.families()))
+        preferred_fonts = [
+            "Consolas",
+            "Arial",
+            "Calibri",
+            "Times New Roman",
+            "Courier New",
+            "Verdana",
+        ]
+        font_values = preferred_fonts + [
+            family for family in available_fonts if family not in preferred_fonts
+        ]
+
+        tk.Label(controlFrame, text='Font').pack(side='left', padx=(12, 2))
+        self.font_family_var = tk.StringVar(value=self.DEFAULT_FONT_FAMILY)
+        self.font_family_box = ttk.Combobox(
+            controlFrame,
+            textvariable=self.font_family_var,
+            values=font_values,
+            width=24,
+            state='readonly',
+        )
+        self.font_family_box.pack(side='left')
+        self.font_family_box.bind(
+            '<<ComboboxSelected>>',
+            lambda _: self.applySelectedFontFamily(),
+        )
+
+        tk.Label(controlFrame, text='Size').pack(side='left', padx=(8, 2))
+        self.font_size_var = tk.IntVar(value=self.DEFAULT_FONT_SIZE)
+        self.font_size_spinbox = tk.Spinbox(
+            controlFrame,
+            from_=6,
+            to=96,
+            width=4,
+            textvariable=self.font_size_var,
+            command=self.applySelectedFontSize,
+        )
+        self.font_size_spinbox.pack(side='left')
+        self.font_size_spinbox.bind('<Return>', lambda _: self.applySelectedFontSize())
+        self.font_size_spinbox.bind('<FocusOut>', lambda _: self.applySelectedFontSize())
+
+        self.text_color_button = tk.Button(
+            controlFrame,
+            text='Text color',
+            command=self.chooseTextColorForSelection,
+        )
+        self.text_color_button.pack(side='left', padx=(8, 0))
         
         self.text = ScrollableText(textFrame, font=self.tkinter_font)
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
@@ -308,96 +371,324 @@ class RTFWindow:
         # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
         # which gives a horizontal scrollbar
         self.tree.column('#0', width=biggest_node_width if biggest_node_width > 45 else 45, stretch=False)
-        
-    def displayNestedRTFStructure(self, structure):
-        img_buildout_hex = '' # support for multiline image hex
-        lastcmd = None
-        for i, r in enumerate(structure):
-            # if nested stuff exists
-            if isinstance(r, list):
-                self.displayNestedRTFStructure(r)
-                continue
-            if r[0] == 'TEXT':
-                self.text.insert('end', r[1])
-            elif r[0] == 'RTFCMD': # rtf modifier commands
-                # image width and height are outliers in how they are handled
-                if r[1].startswith('picw') or r[1].startswith('pich'):
-                    continue # for now don't, this is an issue for later
 
-                match(r[1]):
-                    case 'par': # rtf's version of an explicit newline
-                        self.text.insert('end', '\n')
-                    case 'pict': # a picture
-                        pass # this does nothing, it's chained with another typically
-                    case 'pngblip':
-                        if lastcmd[0] != 'RTFCMD' or lastcmd[1] != 'pict':
-                            print('ERROR: Missing a pict command before the image def!')
-                    # not implemented commands, ignore
-                    case 'ansicpg1252':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'deff0':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'nouicompat':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'deflang1033':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'fnil':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'fcharset0':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'viewkind4':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'uc1':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'sa200':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'sl240':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'slmult1':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'fs22':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'lang9':
-                        print('Not implemented RTFCMD ' + r[1])
-                    case 'wmetafile8':
-                        print('Not implemented RTFCMD ' + r[1])
-                    # header cmds, ignore
-                    case 'rtf1':
-                        pass
-                    case 'ansi':
-                        pass
-                    case 'pard':
-                        pass
-                    case 'fonttbl': # idc about font for now
-                        pass
-                    case 'f0':
-                        pass
-                    case 'fswiss':
-                        pass
-                    case _: # failout if command is completely not known
-                        print("ERROR: I see a command but I don't know what it means!")
-                        print(r)          
-            elif r[0] == 'CMDPARAM': # ignore commands with parameters if the command doesn't explicitly consume it
-                if (lastcmd != None and lastcmd[0] == 'RTFCMD' and lastcmd[1] == 'pngblip') or img_buildout_hex != '': # I should probably be displaying an image here!
-                    img_buildout_hex += r[1]
-                if lastcmd == None:
-                    print('Warning: command parameter without preceding command ' + r[1])
+    def defaultTextStyle(self):
+        return {
+            "font_family": self.DEFAULT_FONT_FAMILY,
+            "font_size": self.DEFAULT_FONT_SIZE,
+            "color": self.DEFAULT_TEXT_COLOR,
+        }
+
+    def normalizeColor(self, color):
+        if color in (None, "", "default"):
+            return self.DEFAULT_TEXT_COLOR
+
+        color = color.strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            return color.lower()
+
+        try:
+            red, green, blue = self.window.winfo_rgb(color)
+        except tk.TclError:
+            return self.DEFAULT_TEXT_COLOR
+
+        return f"#{red // 256:02x}{green // 256:02x}{blue // 256:02x}"
+
+    def _style_key(self, style):
+        return (
+            style.get("font_family", self.DEFAULT_FONT_FAMILY),
+            int(style.get("font_size", self.DEFAULT_FONT_SIZE)),
+            self.normalizeColor(style.get("color", self.DEFAULT_TEXT_COLOR)),
+        )
+
+    def getStyleTag(self, style):
+        key = self._style_key(style)
+        if key == self._style_key(self.defaultTextStyle()):
+            return None
+
+        if key in self.style_tag_names:
+            return self.style_tag_names[key]
+
+        tag = f"{self.FORMAT_TAG_PREFIX}{self.style_tag_counter}"
+        self.style_tag_counter += 1
+        self.style_tag_names[key] = tag
+        self.style_tags[tag] = {
+            "font_family": key[0],
+            "font_size": key[1],
+            "color": key[2],
+        }
+
+        tag_options = {"font": (key[0], key[1])}
+        if key[2] is not None:
+            tag_options["foreground"] = key[2]
+        self.text.tag_configure(tag, **tag_options)
+
+        return tag
+
+    def getTextStyleAt(self, index):
+        style = self.defaultTextStyle()
+        for tag in self.text.tag_names(index):
+            if tag in self.style_tags:
+                style.update(self.style_tags[tag])
+        return style
+
+    def insertStyledText(self, index, text, style):
+        tag = self.getStyleTag(style)
+        if tag is None:
+            self.text.insert(index, text)
+        else:
+            self.text.insert(index, text, (tag,))
+
+    def removeStyleTags(self, start, finish):
+        for tag in list(self.style_tags):
+            self.text.tag_remove(tag, start, finish)
+
+    def selectedTextRange(self):
+        if not self.text.tag_ranges('sel'):
+            messagebox.showerror('No text selected', 'Select text before applying formatting')
+            return None
+
+        return self.text.index('sel.first'), self.text.index('sel.last')
+
+    def applyStylePropertyToSelection(self, property_name, value):
+        selected_range = self.selectedTextRange()
+        if selected_range is None:
+            return None
+
+        start, finish = selected_range
+        current = start
+        while self.text.compare(current, '<', finish):
+            next_index = self.text.index(f'{current}+1c')
+            style = self.getTextStyleAt(current)
+            style[property_name] = value
+            self.removeStyleTags(current, next_index)
+            tag = self.getStyleTag(style)
+            if tag is not None:
+                self.text.tag_add(tag, current, next_index)
+            current = next_index
+
+        return 'break'
+
+    def applySelectedFontFamily(self):
+        return self.applyStylePropertyToSelection(
+            "font_family",
+            self.font_family_var.get() or self.DEFAULT_FONT_FAMILY,
+        )
+
+    def applySelectedFontSize(self):
+        try:
+            font_size = int(self.font_size_var.get())
+        except (tk.TclError, ValueError):
+            font_size = self.DEFAULT_FONT_SIZE
+
+        font_size = min(96, max(6, font_size))
+        self.font_size_var.set(font_size)
+        return self.applyStylePropertyToSelection("font_size", font_size)
+
+    def chooseTextColorForSelection(self):
+        selected_range = self.selectedTextRange()
+        if selected_range is None:
+            return None
+
+        selected_color = colorchooser.askcolor(
+            color=self.getTextStyleAt(selected_range[0])["color"],
+            parent=self.window,
+            title='Choose text color',
+        )
+        if selected_color[1] is None:
+            return None
+
+        return self.applyStylePropertyToSelection("color", selected_color[1])
+        
+    def flattenRTFTokens(self, structure):
+        for token in structure:
+            if isinstance(token, list):
+                yield from self.flattenRTFTokens(token)
+            else:
+                yield token
+
+    def firstRTFCommand(self, structure):
+        for token in structure:
+            if isinstance(token, tuple) and token[0] == 'RTFCMD':
+                return token[1]
+        return None
+
+    def findRTFGroup(self, structure, command):
+        for token in structure:
+            if isinstance(token, list):
+                if self.firstRTFCommand(token) == command:
+                    return token
+                found = self.findRTFGroup(token, command)
+                if found is not None:
+                    return found
+        return None
+
+    def parseRTFFontTable(self, structure):
+        font_group = self.findRTFGroup(structure, 'fonttbl')
+        if font_group is None:
+            return {0: self.DEFAULT_FONT_FAMILY}
+
+        fonts = {}
+        current_font_id = None
+        font_name = ''
+
+        for token_type, token_value in self.flattenRTFTokens(font_group):
+            if token_type == 'RTFCMD':
+                match = re.fullmatch(r'f(\d+)', token_value)
+                if match:
+                    current_font_id = int(match.group(1))
+                    font_name = ''
+                continue
+
+            if current_font_id is None or token_type not in {'TEXT', 'CMDPARAM'}:
+                continue
+
+            font_name += token_value
+            if ';' in font_name:
+                name, font_name = font_name.split(';', 1)
+                name = name.strip()
+                if name:
+                    fonts[current_font_id] = name
+                current_font_id = None
+
+        if 0 not in fonts:
+            fonts[0] = self.DEFAULT_FONT_FAMILY
+        return fonts
+
+    def parseRTFColorTable(self, structure):
+        color_group = self.findRTFGroup(structure, 'colortbl')
+        if color_group is None:
+            return {0: self.DEFAULT_TEXT_COLOR}
+
+        entries = []
+        current_color = {"red": None, "green": None, "blue": None}
+        saw_rgb = False
+
+        for token_type, token_value in self.flattenRTFTokens(color_group):
+            if token_type == 'RTFCMD':
+                match = re.fullmatch(r'(red|green|blue)(\d+)(;*)', token_value)
+                if match:
+                    current_color[match.group(1)] = int(match.group(2))
+                    saw_rgb = True
+                    for _ in range(match.group(3).count(';')):
+                        red = current_color["red"] or 0
+                        green = current_color["green"] or 0
+                        blue = current_color["blue"] or 0
+                        entries.append(f"#{red:02x}{green:02x}{blue:02x}")
+                        current_color = {"red": None, "green": None, "blue": None}
+                        saw_rgb = False
+                continue
+
+            if token_type not in {'TEXT', 'CMDPARAM'}:
+                continue
+
+            for _ in range(token_value.count(';')):
+                if saw_rgb:
+                    red = current_color["red"] or 0
+                    green = current_color["green"] or 0
+                    blue = current_color["blue"] or 0
+                    entries.append(f"#{red:02x}{green:02x}{blue:02x}")
+                else:
+                    entries.append(self.DEFAULT_TEXT_COLOR)
+                current_color = {"red": None, "green": None, "blue": None}
+                saw_rgb = False
+
+        if not entries:
+            entries.append(self.DEFAULT_TEXT_COLOR)
+        return dict(enumerate(entries))
+
+    def extractRTFImageHex(self, structure):
+        hex_chunks = []
+        for token_type, token_value in self.flattenRTFTokens(structure):
+            if token_type not in {'TEXT', 'CMDPARAM'}:
+                continue
+
+            if token_value.strip() == '':
+                continue
+
+            if re.fullmatch(r'[0-9a-fA-F\s]+', token_value):
+                hex_chunks.append(token_value)
+
+        return ''.join(hex_chunks)
+
+    def displayRTFImageGroup(self, structure):
+        img_buildout_hex = self.extractRTFImageHex(structure)
+
+        if img_buildout_hex == '':
+            return None
+
+        try:
+            imgdata = io.BytesIO(bytes.fromhex(img_buildout_hex.replace('\r', '').replace('\n', '').replace(' ', '')))
+            img = Image.open(imgdata)
+        except (OSError, ValueError) as exc:
+            print(f'ERROR: Could not load embedded image: {exc}')
+            return None
+
+        self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
+        self.text.image_create('end', image=self.tkinter_imagelist[-1])
+
+        return None
+
+    def applyRTFCommandToStyle(self, command, style):
+        if command == 'par':
+            self.insertStyledText('end', '\n', style)
+            return style
+
+        if command == 'plain':
+            return self.defaultTextStyle()
+
+        color_match = re.fullmatch(r'cf(\d+)', command)
+        if color_match:
+            style["color"] = self.color_table.get(
+                int(color_match.group(1)),
+                self.DEFAULT_TEXT_COLOR,
+            )
+            return style
+
+        font_match = re.fullmatch(r'f(\d+)', command)
+        if font_match:
+            style["font_family"] = self.font_table.get(
+                int(font_match.group(1)),
+                self.DEFAULT_FONT_FAMILY,
+            )
+            return style
+
+        size_match = re.fullmatch(r'fs(\d+)', command)
+        if size_match:
+            style["font_size"] = max(1, round(int(size_match.group(1)) / 2))
+            return style
+
+        return style
+
+    def displayNestedRTFStructure(self, structure):
+        self.font_table = self.parseRTFFontTable(structure)
+        self.color_table = self.parseRTFColorTable(structure)
+        self._displayNestedRTFStructure(structure, self.defaultTextStyle())
+
+    def _displayNestedRTFStructure(self, structure, style):
+        first_command = self.firstRTFCommand(structure)
+        if first_command in {'fonttbl', 'colortbl'}:
+            return None
+
+        if first_command == 'pict':
+            return self.displayRTFImageGroup(structure)
+
+        current_style = style.copy()
+        for token in structure:
+            if isinstance(token, list):
+                self._displayNestedRTFStructure(token, current_style.copy())
+                continue
+
+            token_type, token_value = token
+            if token_type in {'TEXT', 'CMDPARAM'}:
+                self.insertStyledText('end', token_value, current_style)
+            elif token_type == 'RTFCMD':
+                current_style = self.applyRTFCommandToStyle(token_value, current_style)
             else:
                 print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
-                print(r)
-            lastcmd = r
-        
-        if img_buildout_hex != '':
-            try:
-                imgdata = io.BytesIO(bytes.fromhex(img_buildout_hex.replace('\r', '').replace('\n', '')))
-                img = Image.open(imgdata)
-            except (OSError, ValueError) as exc:
-                print(f'ERROR: Could not load embedded image: {exc}')
-                return None
+                print(token)
 
-            self.tkinter_imagelist += [ImageTk.PhotoImage(img)]
-
-            self.text.image_create('end', image=self.tkinter_imagelist[-1])
+        return None
 
     def tryReadShowRTF(self, event): # event is not used
         self.text.delete('1.0', 'end') # delete all text in textbox currently
@@ -448,14 +739,141 @@ class RTFWindow:
         self.displayNestedRTFStructure(rt)
 
     def isSupportedRTF(self, rt):
-        return (
-            len(rt) >= 5
-            and rt[0] == ('RTFCMD', 'rtf1')
-            and rt[1] == ('RTFCMD', 'ansi')
-            and rt[2] == ('RTFCMD', 'pard')
-            and isinstance(rt[3], list)
-            and len(rt[3]) == 4 # font selection is half-baked
-            and rt[4] == ('RTFCMD', 'f0')
+        if len(rt) < 3:
+            return False
+
+        if rt[0] != ('RTFCMD', 'rtf1') or rt[1] != ('RTFCMD', 'ansi'):
+            return False
+
+        has_paragraph_defaults = any(
+            token == ('RTFCMD', 'pard')
+            for token in rt
+            if isinstance(token, tuple)
+        )
+        has_font_table = self.findRTFGroup(rt, 'fonttbl') is not None
+
+        return has_paragraph_defaults and has_font_table
+
+    def escapeRTFText(self, txt):
+        txt = txt.replace('\\', '\\\\').replace('{', r'\{').replace('}', r'\}')
+        txt = txt.replace('\n', r'{\par }')
+        return ''.join([fr"\u{ord(c)}?" if ord(c) > 0x7F else c for c in txt])
+
+    def escapeRTFFontName(self, font_name):
+        return self.escapeRTFText(font_name).replace(';', '').strip() or self.DEFAULT_FONT_FAMILY
+
+    def assignRTFFontId(self, font_ids, font_family):
+        font_family = font_family or self.DEFAULT_FONT_FAMILY
+        if font_family not in font_ids:
+            font_ids[font_family] = len(font_ids)
+        return font_ids[font_family]
+
+    def assignRTFColorId(self, color_ids, color):
+        color = self.normalizeColor(color)
+        if color is None:
+            return 0
+        if color not in color_ids:
+            color_ids[color] = len(color_ids) + 1
+        return color_ids[color]
+
+    def buildRTFHeader(self, font_ids, color_ids):
+        fonts_by_id = sorted(font_ids.items(), key=lambda item: item[1])
+        font_table = ''.join(
+            rf'{{\f{font_id}\fswiss {self.escapeRTFFontName(font_family)};}}'
+            for font_family, font_id in fonts_by_id
+        )
+
+        header = r'{\rtf1\ansi\pard ' + r'{\fonttbl' + font_table + '}'
+
+        if color_ids:
+            colors_by_id = sorted(color_ids.items(), key=lambda item: item[1])
+            color_table = ';'
+            for color, _ in colors_by_id:
+                red = int(color[1:3], 16)
+                green = int(color[3:5], 16)
+                blue = int(color[5:7], 16)
+                color_table += rf'\red{red}\green{green}\blue{blue};'
+            header += r'{\colortbl ' + color_table + '}'
+
+        header += rf'\f0\fs{self.DEFAULT_FONT_SIZE * 2} '
+        return header
+
+    def styleRTFCommandPrefix(self, style, font_ids, color_ids):
+        commands = []
+        style = {**self.defaultTextStyle(), **style}
+
+        font_id = self.assignRTFFontId(font_ids, style["font_family"])
+        if font_id != 0:
+            commands.append(rf'\f{font_id}')
+
+        font_size = int(style["font_size"])
+        if font_size != self.DEFAULT_FONT_SIZE:
+            commands.append(rf'\fs{font_size * 2}')
+
+        color_id = self.assignRTFColorId(color_ids, style["color"])
+        if color_id != 0:
+            commands.append(rf'\cf{color_id}')
+
+        return ''.join(commands)
+
+    def currentDumpStyle(self, active_style_tags):
+        style = self.defaultTextStyle()
+        for tag in active_style_tags:
+            if tag in self.style_tags:
+                style.update(self.style_tags[tag])
+        return style
+
+    def convertDumpToRTFBody(self, textContents):
+        body = ''
+        font_ids = {self.DEFAULT_FONT_FAMILY: 0}
+        color_ids = {}
+        active_style_tags = []
+        has_formatting = False
+
+        for token_type, token_value, _ in textContents:
+            if token_type == 'tagon' and token_value in self.style_tags:
+                active_style_tags.append(token_value)
+                continue
+
+            if token_type == 'tagoff' and token_value in active_style_tags:
+                active_style_tags.remove(token_value)
+                continue
+
+            if token_type == 'image':
+                real_image = None
+                for img in self.tkinter_imagelist:
+                    if str(img) == token_value:
+                        real_image = img
+                        break
+
+                if real_image is None:
+                    continue
+
+                ibytes = io.BytesIO()
+                shifted_img = ImageTk.getimage(real_image)
+                imgx, imgy = shifted_img.size
+                shifted_img.save(ibytes, 'PNG')
+                body += r'{\pict\pngblip' + rf'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
+                continue
+
+            if token_type != 'text':
+                continue
+
+            text = self.escapeRTFText(token_value)
+            style = self.currentDumpStyle(active_style_tags)
+            style_prefix = self.styleRTFCommandPrefix(style, font_ids, color_ids)
+            if style_prefix:
+                has_formatting = True
+                body += '{' + style_prefix + ' ' + text + '}'
+            else:
+                body += text
+
+        return body, font_ids, color_ids, has_formatting
+
+    def rangeHasFormatting(self, start, finish):
+        return any(
+            token_type in {'tagon', 'tagoff'} and token_value in self.style_tags
+            for token_type, token_value, _ in self.text.dump(start, finish)
         )
     
     # convert a text selection to RTF
@@ -466,37 +884,19 @@ class RTFWindow:
             tk.messagebox.showerror(title='No open files to save', message='No open files to save')
             return None
         
-        # header to save
-        data = self.RTF_HEADER
-        
         # get the text contents including images
         # tkinter proves "dump" for this
+        if finish == 'end':
+            finish = 'end-1c'
         textContents = self.text.dump(start, finish)
-        
-        # if there is a trailing newline, remove it
-        # tkinter sometimes randomly adds a newline to the text dump
-        if textContents and textContents[-1][0] == 'text' and textContents[-1][1] == '\n':
-            textContents = textContents[:-1]
-        
-        for i, t in enumerate(textContents):
-            if t[0] == 'image':
-                real_image = None
-                for img in self.tkinter_imagelist:
-                    if str(img) == t[1]:
-                        real_image = img
-                        break
-                ibytes = io.BytesIO()
-                shifted_img = ImageTk.getimage(real_image)
-                imgx, imgy = shifted_img.size
-                #print(imgx, imgy)
-                shifted_img.save(ibytes, 'PNG')
-                data += r'{\pict\pngblip' + rf'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
-            elif t[0] == 'text':
-                txt = t[1]
-                txt = txt.replace('\\', '\\\\').replace('{', r'\{').replace('}', r'\}').replace('\n', r'{\par }') # escape backslash and curly brace
-                txt = ''.join([fr"\u{ord(c):04d}?" if ord(c) > 0x7F else c for c in txt]) # if non ASCII, then encode the character for RTF
-                data += txt
-        
+
+        body, font_ids, color_ids, has_formatting = self.convertDumpToRTFBody(textContents)
+
+        if has_formatting or color_ids or len(font_ids) > 1:
+            data = self.buildRTFHeader(font_ids, color_ids) + body
+        else:
+            data = self.RTF_HEADER + body
+
         data = data.strip() # this is cleaner to remove extra whitespace
         data += '}'
         
@@ -667,7 +1067,9 @@ class RTFWindow:
         self.clip.open_clipboard()
         # this is needed for unknown reasons, the docs say this should lose the handle
         self.clip.clear_clipboard()
-        if len(text_in_selection) > 0 and len(imgs_in_selection) > 0:
+        selection_has_formatting = self.rangeHasFormatting(sel_start, sel_end)
+
+        if len(text_in_selection) > 0 and (len(imgs_in_selection) > 0 or selection_has_formatting):
             self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
         elif len(text_in_selection) > 0:
             try:
