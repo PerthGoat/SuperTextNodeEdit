@@ -1987,6 +1987,63 @@ class RTFWindow:
                 text_parts.append(token_value)
 
         return text_parts
+
+    def expandTabbedLinesForPlainText(self, lines):
+        split_lines = [line.split('\t') for line in lines]
+        column_widths = []
+        for parts in split_lines:
+            for column_index, part in enumerate(parts[:-1]):
+                if column_index == len(column_widths):
+                    column_widths.append(0)
+                column_widths[column_index] = max(column_widths[column_index], len(part))
+
+        expanded_lines = []
+        for parts in split_lines:
+            if len(parts) == 1:
+                expanded_lines.append(parts[0])
+                continue
+
+            expanded = ''
+            for column_index, part in enumerate(parts[:-1]):
+                expanded += part
+                expanded += ' ' * (column_widths[column_index] - len(part) + 1)
+            expanded += parts[-1]
+            expanded_lines.append(expanded)
+
+        return expanded_lines
+
+    def expandTabsForPlainText(self, text):
+        lines = text.split('\n')
+        expanded_lines = []
+        tabbed_block = []
+
+        def flushTabbedBlock():
+            if not tabbed_block:
+                return None
+            expanded_lines.extend(self.expandTabbedLinesForPlainText(tabbed_block))
+            tabbed_block.clear()
+            return None
+
+        for line in lines:
+            if '\t' in line:
+                tabbed_block.append(line)
+                continue
+
+            flushTabbedBlock()
+            expanded_lines.append(line)
+
+        flushTabbedBlock()
+        return '\n'.join(expanded_lines)
+
+    def plainTextForClipboard(self, text_parts):
+        return self.expandTabsForPlainText(''.join(text_parts))
+
+    def setClipboardPlainText(self, text):
+        self.clip.set_clipboard(text.encode('utf-16-le'), self.clip.UNITEXT)
+        try:
+            self.clip.set_clipboard(text.encode('ansi'), self.clip.TEXT)
+        except UnicodeEncodeError:
+            pass
     
     # convert a text selection to RTF
     # start to finish of selection
@@ -2167,6 +2224,7 @@ class RTFWindow:
         selected_text = self.text.dump(sel_start, sel_end)
         
         text_in_selection = self.dumpTextWithoutAlignmentPadding(selected_text)
+        plain_text_in_selection = self.plainTextForClipboard(text_in_selection)
         imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
 
         ibytes = io.BytesIO()
@@ -2178,14 +2236,13 @@ class RTFWindow:
         self.clip.clear_clipboard()
         selection_has_formatting = self.rangeHasFormatting(sel_start, sel_end)
 
-        if len(text_in_selection) > 0 and (len(imgs_in_selection) > 0 or selection_has_formatting):
-            self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
-        elif len(text_in_selection) > 0:
-            try:
-                self.clip.set_clipboard(''.join(text_in_selection).encode('ansi'), self.clip.TEXT)
-            except UnicodeEncodeError:
-                self.clip.set_clipboard(''.join(text_in_selection).encode('utf-16'), self.clip.UNITEXT)
-        elif len(imgs_in_selection) > 0:
+        if len(text_in_selection) > 0:
+            self.setClipboardPlainText(plain_text_in_selection)
+
+            if len(imgs_in_selection) > 0 or selection_has_formatting:
+                self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
+
+        if len(text_in_selection) == 0 and len(imgs_in_selection) > 0:
             for embedded_image in imgs_in_selection:
                 tkimg = self.getPhotoImageForEmbeddedImage(embedded_image)
                 if tkimg is not None:

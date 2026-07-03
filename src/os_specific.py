@@ -83,8 +83,12 @@ class Clipboard:
         #EmptyClipboard() # this is needed for unknown reasons, the docs say this should lose the handle
 
         def set_clipboard_data(data_type_id, payload):
-            data_char_pointer = ctypes.c_char_p(payload) # convert data to a C char*
-            d_len = len(payload)+1 # get the length of the data for copying later
+            d_len = len(payload)
+            if data_type_id == self.UNITEXT:
+                d_len += 2
+            else:
+                d_len += 1
+            data_buffer = ctypes.create_string_buffer(payload, d_len)
 
             # SetClipboardData takes ownership of the handle on success.
             hMem = GlobalAlloc(GMEM_MOVEABLE, d_len)
@@ -96,7 +100,7 @@ class Clipboard:
                 GlobalFree(hMem)
                 raise ctypes.WinError()
 
-            memcpy(data_lock, data_char_pointer, d_len)
+            memcpy(data_lock, data_buffer, d_len)
             GlobalUnlock(hMem) # unlock the heap for the clipboard
 
             if not SetClipboardData(data_type_id, hMem):

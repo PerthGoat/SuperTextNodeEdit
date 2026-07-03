@@ -25,6 +25,9 @@ class FakeClipboard:
     BITMAP = 0x8
     RTF_NO_OBJ = 49514
 
+    def __init__(self):
+        self.set_calls = []
+
     def open_clipboard(self):
         pass
 
@@ -39,6 +42,7 @@ class FakeClipboard:
 
     def set_clipboard(self, data, data_type):
         self.last_set = (data, data_type)
+        self.set_calls.append((data, data_type))
 
 
 def make_config(path, node_dir):
@@ -251,6 +255,58 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.displayNestedRTFStructure(parsed)
 
         self.assertEqual("Name\tValue\n", self.window.text.get("1.0", "end"))
+
+    def test_plain_text_copy_sets_normal_text_clipboard_formats(self):
+        self.window.text.insert("1.0", "Plain text")
+        self.window.text.tag_add("sel", "1.0", "1.10")
+
+        self.window.copyFromClipboard(None)
+
+        self.assertIn(
+            ("Plain text".encode("utf-16-le"), self.window.clip.UNITEXT),
+            self.window.clip.set_calls,
+        )
+        self.assertIn(
+            ("Plain text".encode("ansi"), self.window.clip.TEXT),
+            self.window.clip.set_calls,
+        )
+
+    def test_copy_table_expands_tabs_to_spaces_for_plain_text_clipboard(self):
+        self.window.insertTable(3, 2, has_header=True)
+        self.window.text.tag_add("sel", "1.0", "end-1c")
+
+        self.window.copyFromClipboard(None)
+
+        unicode_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.UNITEXT
+        )
+        self.assertEqual(
+            "| Col A  | Col B  |\n"
+            "| ------ | ------ |\n"
+            "| Cell 1 | Cell 2 |\n"
+            "| Cell 3 | Cell 4 |",
+            unicode_payload.decode("utf-16-le"),
+        )
+        self.assertNotIn(b"\t", unicode_payload)
+
+    def test_formatted_text_copy_sets_plain_text_and_rtf_formats(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Bold")
+        self.window.text.tag_add("sel", "1.0", "1.4")
+        self.window.toggleBoldForSelection()
+        self.window.text.tag_add("sel", "1.0", "1.4")
+
+        self.window.copyFromClipboard(None)
+
+        copied_types = [
+            data_type
+            for _, data_type in self.window.clip.set_calls
+        ]
+        self.assertIn(self.window.clip.UNITEXT, copied_types)
+        self.assertIn(self.window.clip.TEXT, copied_types)
+        self.assertIn(self.window.clip.RTF_NO_OBJ, copied_types)
 
     def test_convert_to_rtf_exports_selected_text_formatting(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
