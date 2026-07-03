@@ -222,12 +222,32 @@ class RTFWindow:
             command=self.chooseTextColorForSelection,
         )
         self.text_color_button.pack(side='left', padx=(8, 0))
+
+        self.bold_button = tk.Button(
+            controlFrame,
+            text='B',
+            width=3,
+            font=(self.DEFAULT_FONT_FAMILY, self.DEFAULT_FONT_SIZE, 'bold'),
+            command=self.toggleBoldForSelection,
+        )
+        self.bold_button.pack(side='left', padx=(8, 0))
+
+        self.italic_button = tk.Button(
+            controlFrame,
+            text='I',
+            width=3,
+            font=(self.DEFAULT_FONT_FAMILY, self.DEFAULT_FONT_SIZE, 'italic'),
+            command=self.toggleItalicForSelection,
+        )
+        self.italic_button.pack(side='left', padx=(2, 0))
         
         self.text = ScrollableText(textFrame, font=self.tkinter_font)
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
         
         self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
+        self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
+        self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
         
         self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
         
@@ -377,6 +397,8 @@ class RTFWindow:
             "font_family": self.DEFAULT_FONT_FAMILY,
             "font_size": self.DEFAULT_FONT_SIZE,
             "color": self.DEFAULT_TEXT_COLOR,
+            "bold": False,
+            "italic": False,
         }
 
     def normalizeColor(self, color):
@@ -399,6 +421,8 @@ class RTFWindow:
             style.get("font_family", self.DEFAULT_FONT_FAMILY),
             int(style.get("font_size", self.DEFAULT_FONT_SIZE)),
             self.normalizeColor(style.get("color", self.DEFAULT_TEXT_COLOR)),
+            bool(style.get("bold", False)),
+            bool(style.get("italic", False)),
         )
 
     def getStyleTag(self, style):
@@ -416,9 +440,21 @@ class RTFWindow:
             "font_family": key[0],
             "font_size": key[1],
             "color": key[2],
+            "bold": key[3],
+            "italic": key[4],
         }
 
-        tag_options = {"font": (key[0], key[1])}
+        font_style_parts = []
+        if key[3]:
+            font_style_parts.append("bold")
+        if key[4]:
+            font_style_parts.append("italic")
+
+        if font_style_parts:
+            tag_options = {"font": (key[0], key[1], " ".join(font_style_parts))}
+        else:
+            tag_options = {"font": (key[0], key[1])}
+
         if key[2] is not None:
             tag_options["foreground"] = key[2]
         self.text.tag_configure(tag, **tag_options)
@@ -450,12 +486,7 @@ class RTFWindow:
 
         return self.text.index('sel.first'), self.text.index('sel.last')
 
-    def applyStylePropertyToSelection(self, property_name, value):
-        selected_range = self.selectedTextRange()
-        if selected_range is None:
-            return None
-
-        start, finish = selected_range
+    def applyStylePropertyToRange(self, start, finish, property_name, value):
         current = start
         while self.text.compare(current, '<', finish):
             next_index = self.text.index(f'{current}+1c')
@@ -468,6 +499,47 @@ class RTFWindow:
             current = next_index
 
         return 'break'
+
+    def applyStylePropertyToSelection(self, property_name, value):
+        selected_range = self.selectedTextRange()
+        if selected_range is None:
+            return None
+
+        return self.applyStylePropertyToRange(
+            selected_range[0],
+            selected_range[1],
+            property_name,
+            value,
+        )
+
+    def selectionAllHasStyleProperty(self, start, finish, property_name, value):
+        current = start
+        while self.text.compare(current, '<', finish):
+            if self.getTextStyleAt(current).get(property_name) != value:
+                return False
+            current = self.text.index(f'{current}+1c')
+
+        return True
+
+    def toggleStylePropertyForSelection(self, property_name):
+        selected_range = self.selectedTextRange()
+        if selected_range is None:
+            return None
+
+        start, finish = selected_range
+        new_value = not self.selectionAllHasStyleProperty(
+            start,
+            finish,
+            property_name,
+            True,
+        )
+        return self.applyStylePropertyToRange(start, finish, property_name, new_value)
+
+    def toggleBoldForSelection(self):
+        return self.toggleStylePropertyForSelection("bold")
+
+    def toggleItalicForSelection(self):
+        return self.toggleStylePropertyForSelection("italic")
 
     def applySelectedFontFamily(self):
         return self.applyStylePropertyToSelection(
@@ -636,6 +708,16 @@ class RTFWindow:
 
         if command == 'plain':
             return self.defaultTextStyle()
+
+        bold_match = re.fullmatch(r'b(0?)', command)
+        if bold_match:
+            style["bold"] = bold_match.group(1) != "0"
+            return style
+
+        italic_match = re.fullmatch(r'i(0?)', command)
+        if italic_match:
+            style["italic"] = italic_match.group(1) != "0"
+            return style
 
         color_match = re.fullmatch(r'cf(\d+)', command)
         if color_match:
@@ -813,6 +895,12 @@ class RTFWindow:
         color_id = self.assignRTFColorId(color_ids, style["color"])
         if color_id != 0:
             commands.append(rf'\cf{color_id}')
+
+        if style["bold"]:
+            commands.append(r'\b')
+
+        if style["italic"]:
+            commands.append(r'\i')
 
         return ''.join(commands)
 

@@ -206,20 +206,22 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.font_size_var.set(18)
         self.window.applySelectedFontSize()
         self.window.applyStylePropertyToSelection("color", "#ff0000")
+        self.window.toggleBoldForSelection()
+        self.window.toggleItalicForSelection()
 
         rtf = self.window.convertToRTF("1.0", "end")
 
         self.assertIn(r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}", rtf)
         self.assertIn(r"{\colortbl ;\red255\green0\blue0;}", rtf)
         self.assertIn(r"Hello ", rtf)
-        self.assertIn(r"{\f1\fs36\cf1 World}", rtf)
+        self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
     def test_display_nested_rtf_structure_imports_text_formatting(self):
         rtf_text = (
             r"{\rtf1\ansi\pard "
             r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}"
             r"{\colortbl ;\red255\green0\blue0;}"
-            r"\f0\fs24 Plain {\f1\fs32\cf1 Fancy}}"
+            r"\f0\fs24 Plain {\f1\fs32\cf1\b\i Fancy}}"
         )
 
         parsed = app.RTFParser(rtf_text).parseme()
@@ -232,6 +234,8 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("Arial", fancy_style["font_family"])
         self.assertEqual(16, fancy_style["font_size"])
         self.assertEqual("#ff0000", fancy_style["color"])
+        self.assertTrue(fancy_style["bold"])
+        self.assertTrue(fancy_style["italic"])
 
     def test_display_nested_rtf_structure_only_decodes_actual_picture_group(self):
         rtf_text = (
