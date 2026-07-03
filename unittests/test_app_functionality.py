@@ -230,6 +230,32 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.updateToolbarStyleFromSelection()
         self.assertEqual(24, self.window.font_size_var.get())
 
+    def test_font_menu_without_selection_sets_style_for_typed_text(self):
+        self.window.text.insert("1.0", "Old ")
+        self.window.text.mark_set("insert", "end-1c")
+
+        self.window.font_family_var.set("Arial")
+        self.window.applySelectedFontFamily()
+        self.window.font_size_var.set(20)
+        self.window.applySelectedFontSize()
+        self.window.insertTypedText("New")
+
+        self.assertEqual("Old New\n", self.window.text.get("1.0", "end"))
+        old_style = self.window.getTextStyleAt("1.0")
+        new_style = self.window.getTextStyleAt("1.4")
+        self.assertEqual(self.window.DEFAULT_FONT_FAMILY, old_style["font_family"])
+        self.assertEqual(self.window.DEFAULT_FONT_SIZE, old_style["font_size"])
+        self.assertEqual("Arial", new_style["font_family"])
+        self.assertEqual(20, new_style["font_size"])
+
+    def test_bold_without_selection_sets_style_for_typed_text(self):
+        self.window.toggleBoldForSelection()
+        self.window.insertTypedText("Bold")
+
+        style = self.window.getTextStyleAt("1.0")
+        self.assertTrue(style["bold"])
+        self.assertTrue(self.window.bold_menu_var.get())
+
     def test_display_nested_rtf_structure_imports_text_formatting(self):
         rtf_text = (
             r"{\rtf1\ansi\pard "

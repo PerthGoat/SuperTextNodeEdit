@@ -86,6 +86,7 @@ class RTFWindow:
         self.style_tags = {}
         self.style_tag_names = {}
         self.style_tag_counter = 0
+        self.typing_style = self.defaultTextStyle()
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
@@ -185,6 +186,7 @@ class RTFWindow:
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
         self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
         self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
+        self.text.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
@@ -527,10 +529,27 @@ class RTFWindow:
             return self.text.index('sel.first')
 
         index = self.text.index('insert')
-        if self.text.compare(index, '>=', 'end'):
+        if self.text.compare(index, '>', '1.0'):
+            index = self.text.index(f'{index}-1c')
+        elif self.text.compare(index, '>=', 'end'):
             index = self.text.index('end-1c')
 
         return index
+
+    def setToolbarStyleVars(self, style):
+        self.font_family_var.set(style["font_family"])
+        self.font_size_var.set(style["font_size"])
+        self.bold_menu_var.set(style["bold"])
+        self.italic_menu_var.set(style["italic"])
+
+    def setTypingStyleProperty(self, property_name, value):
+        self.typing_style = {**self.defaultTextStyle(), **self.typing_style}
+        self.typing_style[property_name] = value
+        if property_name == "color":
+            self.typing_style[property_name] = self.normalizeColor(value)
+
+        self.setToolbarStyleVars(self.typing_style)
+        return 'break'
 
     def scheduleToolbarStyleUpdate(self, event=None):
         self.window.after_idle(self.updateToolbarStyleFromSelection)
@@ -538,11 +557,9 @@ class RTFWindow:
 
     def updateToolbarStyleFromSelection(self):
         style = self.getTextStyleAt(self.getToolbarStyleIndex())
+        self.typing_style = style.copy()
 
-        self.font_family_var.set(style["font_family"])
-        self.font_size_var.set(style["font_size"])
-        self.bold_menu_var.set(style["bold"])
-        self.italic_menu_var.set(style["italic"])
+        self.setToolbarStyleVars(style)
 
         return None
 
@@ -553,13 +570,45 @@ class RTFWindow:
         else:
             self.text.insert(index, text, (tag,))
 
+    def typedCharacterFromEvent(self, event):
+        if event.state & 0x4:
+            return None
+
+        if event.keysym == 'Return':
+            return '\n'
+
+        if event.keysym == 'Tab':
+            return '\t'
+
+        if len(event.char) == 0 or ord(event.char[0]) < 32:
+            return None
+
+        return event.char
+
+    def insertTypedText(self, text):
+        if self.text.tag_ranges('sel'):
+            self.text.delete('sel.first', 'sel.last')
+
+        self.insertStyledText('insert', text, self.typing_style)
+        self.text.see('insert')
+        self.updateToolbarStyleFromSelection()
+        return 'break'
+
+    def insertTypedTextWithCurrentStyle(self, event):
+        text = self.typedCharacterFromEvent(event)
+        if text is None:
+            return None
+
+        return self.insertTypedText(text)
+
     def removeStyleTags(self, start, finish):
         for tag in list(self.style_tags):
             self.text.tag_remove(tag, start, finish)
 
-    def selectedTextRange(self):
+    def selectedTextRange(self, show_error=True):
         if not self.text.tag_ranges('sel'):
-            messagebox.showerror('No text selected', 'Select text before applying formatting')
+            if show_error:
+                messagebox.showerror('No text selected', 'Select text before applying formatting')
             return None
 
         return self.text.index('sel.first'), self.text.index('sel.last')
@@ -579,10 +628,9 @@ class RTFWindow:
         return 'break'
 
     def applyStylePropertyToSelection(self, property_name, value):
-        selected_range = self.selectedTextRange()
+        selected_range = self.selectedTextRange(show_error=False)
         if selected_range is None:
-            self.updateToolbarStyleFromSelection()
-            return None
+            return self.setTypingStyleProperty(property_name, value)
 
         result = self.applyStylePropertyToRange(
             selected_range[0],
@@ -603,10 +651,10 @@ class RTFWindow:
         return True
 
     def toggleStylePropertyForSelection(self, property_name):
-        selected_range = self.selectedTextRange()
+        selected_range = self.selectedTextRange(show_error=False)
         if selected_range is None:
-            self.updateToolbarStyleFromSelection()
-            return None
+            new_value = not bool(self.typing_style.get(property_name, False))
+            return self.setTypingStyleProperty(property_name, new_value)
 
         start, finish = selected_range
         new_value = not self.selectionAllHasStyleProperty(
@@ -657,12 +705,13 @@ class RTFWindow:
         return self.applySelectedFontSize()
 
     def chooseTextColorForSelection(self):
-        selected_range = self.selectedTextRange()
-        if selected_range is None:
-            return None
+        selected_range = self.selectedTextRange(show_error=False)
+        current_color = self.typing_style["color"]
+        if selected_range is not None:
+            current_color = self.getTextStyleAt(selected_range[0])["color"]
 
         selected_color = colorchooser.askcolor(
-            color=self.getTextStyleAt(selected_range[0])["color"],
+            color=current_color,
             parent=self.window,
             title='Choose text color',
         )
