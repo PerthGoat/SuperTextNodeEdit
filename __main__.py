@@ -54,12 +54,15 @@ class RTFWindow:
     ACTION_QUEUE_POLL_MS = 10
     FORMAT_TAG_PREFIX = "rtf_style_"
     ALIGNMENT_TAG_PREFIX = "rtf_alignment_"
+    TABLE_TAG_PREFIX = "rtf_table_"
     DEFAULT_FONT_FAMILY = "Consolas"
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
     TEXT_CURSOR = 'xterm'
     IMAGE_RESIZE_HANDLE_SIZE = 8
     IMAGE_RESIZE_MIN_SIZE = 8
+    TABLE_MIN_CELL_WIDTH = 48
+    TABLE_COLUMN_GAP = 24
 
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
@@ -95,6 +98,7 @@ class RTFWindow:
         self.style_tag_counter = 0
         self.typing_style = self.defaultTextStyle()
         self.center_layout_after_id = None
+        self.table_layout_after_id = None
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
@@ -121,6 +125,7 @@ class RTFWindow:
         original_destroy = self.window.destroy
         def destroyWindow():
             self.cancelScheduledCenteredTextLayoutRefresh()
+            self.cancelScheduledTableLayoutRefresh()
             original_destroy()
         self.window.destroy = destroyWindow
         self.window.bind('<Destroy>', self.cancelScheduledCenteredTextLayoutRefresh, add='+')
@@ -205,9 +210,11 @@ class RTFWindow:
         self.text.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
+        self.text.bind('<KeyRelease>', self.scheduleTableLayoutRefresh, add='+')
         self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
+        self.text.bind('<Configure>', self.scheduleTableLayoutRefresh, add='+')
         self.text.bind('<Motion>', self.updateImageResizeCursor, add='+')
         self.text.bind('<ButtonPress-1>', self.beginImageResize, add='+')
         self.text.bind('<B1-Motion>', self.dragImageResize, add='+')
@@ -251,6 +258,10 @@ class RTFWindow:
         node_menu.add_command(label='Rename', command=self.renameNode)
         node_menu.add_command(label='Delete', command=self.deleteNode)
         menu_bar.add_cascade(label='Nodes', menu=node_menu)
+
+        insert_menu = tk.Menu(menu_bar, tearoff=False)
+        insert_menu.add_command(label='Table...', command=self.showInsertTableDialog)
+        menu_bar.add_cascade(label='Insert', menu=insert_menu)
 
         format_menu = tk.Menu(menu_bar, tearoff=False)
 
@@ -795,6 +806,7 @@ class RTFWindow:
         else:
             self.text.insert(index, text, (tag,))
         self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
 
     def typedCharacterFromEvent(self, event):
         if event.state & 0x4:
@@ -852,6 +864,7 @@ class RTFWindow:
             current = next_index
 
         self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
         return 'break'
 
     def applyStylePropertyToSelection(self, property_name, value):
@@ -1035,6 +1048,181 @@ class RTFWindow:
             return None
 
         return self.applyStylePropertyToSelection("color", selected_color[1])
+
+    def showInsertTableDialog(self):
+        if self.UI_popup is not None:
+            self.UI_popup.lift()
+            return None
+
+        self.UI_popup = (tableWin := tk.Toplevel(self.window))
+        tableWin.title('Insert Table')
+        tableWin.geometry('240x130')
+        tableWin.resizable(False, False)
+        tableWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
+
+        rows_var = tk.IntVar(value=3)
+        columns_var = tk.IntVar(value=3)
+
+        tk.Label(tableWin, text='Rows').grid(row=0, column=0, sticky='e', padx=(14, 8), pady=(14, 6))
+        rows_spin = tk.Spinbox(tableWin, from_=1, to=50, width=6, textvariable=rows_var)
+        rows_spin.grid(row=0, column=1, sticky='w', pady=(14, 6))
+
+        tk.Label(tableWin, text='Columns').grid(row=1, column=0, sticky='e', padx=(14, 8), pady=6)
+        columns_spin = tk.Spinbox(tableWin, from_=1, to=20, width=6, textvariable=columns_var)
+        columns_spin.grid(row=1, column=1, sticky='w', pady=6)
+
+        buttonFrame = tk.Frame(tableWin)
+        buttonFrame.grid(row=2, column=0, columnspan=2, sticky='e', padx=14, pady=(8, 12))
+
+        def applyTable():
+            try:
+                rows = int(rows_var.get())
+                columns = int(columns_var.get())
+            except (tk.TclError, ValueError):
+                messagebox.showerror('Invalid table size', 'Rows and columns must be numbers')
+                return None
+
+            self.insertTable(rows, columns)
+            self.killUIPopup()
+            return None
+
+        tk.Button(buttonFrame, text='Insert', command=applyTable).pack(side='right')
+        tk.Button(buttonFrame, text='Cancel', command=self.killUIPopup).pack(side='right', padx=(0, 6))
+
+        rows_spin.bind('<Return>', lambda _: applyTable())
+        columns_spin.bind('<Return>', lambda _: applyTable())
+        rows_spin.focus_set()
+        rows_spin.selection_range(0, 'end')
+
+        return None
+
+    def buildTableText(self, rows, columns):
+        rows = min(50, max(1, int(rows)))
+        columns = min(20, max(1, int(columns)))
+        cell_number = 1
+        table_rows = []
+        for _ in range(rows):
+            cells = []
+            for _ in range(columns):
+                cells.append(f'Cell {cell_number}')
+                cell_number += 1
+            table_rows.append('\t'.join(cells))
+
+        return '\n'.join(table_rows)
+
+    def insertTable(self, rows, columns):
+        rows = min(50, max(1, int(rows)))
+        columns = min(20, max(1, int(columns)))
+
+        if self.text.tag_ranges('sel'):
+            self.text.delete('sel.first', 'sel.last')
+
+        self.insertStyledText('insert', self.buildTableText(rows, columns), self.typing_style)
+        self.refreshTableLayout()
+        self.text.see('insert')
+        self.updateToolbarStyleFromSelection()
+        return 'break'
+
+    def isTableTag(self, tag):
+        return tag.startswith(self.TABLE_TAG_PREFIX)
+
+    def removeTableLayoutTags(self):
+        for tag in list(self.text.tag_names()):
+            if self.isTableTag(tag):
+                self.text.tag_remove(tag, '1.0', 'end')
+
+    def lineHasTableCells(self, line_number):
+        return '\t' in self.text.get(f'{line_number}.0', f'{line_number}.end')
+
+    def tableLineCellWidths(self, line_number):
+        line_start = f'{line_number}.0'
+        line_end = f'{line_number}.end'
+        current = line_start
+        widths = [0]
+        font_cache = {}
+
+        while self.text.compare(current, '<', line_end):
+            next_index = self.text.index(f'{current}+1c')
+            char = self.text.get(current, next_index)
+            if char == '\t':
+                widths.append(0)
+                current = next_index
+                continue
+
+            if self.indexHasAlignmentPadding(current):
+                current = next_index
+                continue
+
+            style = self.getTextStyleAt(current)
+            key = self._style_key(style)
+            if key not in font_cache:
+                font_cache[key] = self.textStyleFont(style)
+            widths[-1] += font_cache[key].measure(char)
+            current = next_index
+
+        return widths
+
+    def tableTabStopsForLines(self, start_line, finish_line):
+        column_widths = []
+        for line_number in range(start_line, finish_line + 1):
+            cell_widths = self.tableLineCellWidths(line_number)
+            for column_index, cell_width in enumerate(cell_widths):
+                if column_index == len(column_widths):
+                    column_widths.append(0)
+                column_widths[column_index] = max(column_widths[column_index], cell_width)
+
+        stops = []
+        position = 0
+        for width in column_widths[:-1]:
+            position += max(width, self.TABLE_MIN_CELL_WIDTH) + self.TABLE_COLUMN_GAP
+            stops.append(position)
+
+        return tuple(stops)
+
+    def refreshTableLayout(self):
+        self.cancelScheduledTableLayoutRefresh()
+        self.removeTableLayoutTags()
+
+        last_line = int(self.text.index('end-1c').split('.')[0])
+        line_number = 1
+        while line_number <= last_line:
+            if not self.lineHasTableCells(line_number):
+                line_number += 1
+                continue
+
+            block_start = line_number
+            while line_number <= last_line and self.lineHasTableCells(line_number):
+                line_number += 1
+            block_finish = line_number - 1
+
+            tag = f'{self.TABLE_TAG_PREFIX}{block_start}'
+            tab_stops = self.tableTabStopsForLines(block_start, block_finish)
+            self.text.tag_configure(tag, tabs=tab_stops)
+            for tagged_line in range(block_start, block_finish + 1):
+                self.text.tag_add(tag, f'{tagged_line}.0', f'{tagged_line}.end')
+
+        return None
+
+    def scheduleTableLayoutRefresh(self, event=None):
+        if self.table_layout_after_id is None:
+            self.table_layout_after_id = self.window.after_idle(
+                self.runScheduledTableLayoutRefresh
+            )
+        return None
+
+    def cancelScheduledTableLayoutRefresh(self, event=None):
+        if self.table_layout_after_id is not None:
+            try:
+                self.window.after_cancel(self.table_layout_after_id)
+            except tk.TclError:
+                pass
+            self.table_layout_after_id = None
+
+        return None
+
+    def runScheduledTableLayoutRefresh(self):
+        self.table_layout_after_id = None
+        return self.refreshTableLayout()
         
     def flattenRTFTokens(self, structure):
         for token in structure:
@@ -1410,6 +1598,10 @@ class RTFWindow:
             self.insertStyledText('end', '\n', style)
             return style
 
+        if command == 'tab':
+            self.insertStyledText('end', '\t', style)
+            return style
+
         if command == 'pard':
             style["alignment"] = "left"
             return style
@@ -1556,6 +1748,7 @@ class RTFWindow:
 
     def escapeRTFText(self, txt):
         txt = txt.replace('\\', '\\\\').replace('{', r'\{').replace('}', r'\}')
+        txt = txt.replace('\t', r'{\tab }')
         txt = txt.replace('\n', r'{\par }')
         return ''.join([fr"\u{ord(c)}?" if ord(c) > 0x7F else c for c in txt])
 

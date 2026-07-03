@@ -197,6 +197,34 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(rtf.startswith(self.window.RTF_HEADER))
         self.assertTrue(rtf.endswith("}"))
 
+    def test_insert_table_creates_tab_separated_rows_with_elastic_tab_tag(self):
+        self.window.insertTable(2, 3)
+
+        self.assertEqual(
+            "Cell 1\tCell 2\tCell 3\nCell 4\tCell 5\tCell 6\n",
+            self.window.text.get("1.0", "end"),
+        )
+        table_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.TABLE_TAG_PREFIX)
+        )
+        self.assertTrue(self.window.text.tag_cget(table_tag, "tabs"))
+        self.assertIn(table_tag, self.window.text.tag_names("2.0"))
+
+    def test_rtf_export_and_import_round_trips_tabs(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Name\tValue")
+
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"Name{\tab }Value", rtf)
+
+        parsed = app.RTFParser(rtf).parseme()
+        self.window.text.delete("1.0", "end")
+        self.window.displayNestedRTFStructure(parsed)
+
+        self.assertEqual("Name\tValue\n", self.window.text.get("1.0", "end"))
+
     def test_convert_to_rtf_exports_selected_text_formatting(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         self.window.text.insert("1.0", "Hello World")
