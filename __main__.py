@@ -1056,12 +1056,13 @@ class RTFWindow:
 
         self.UI_popup = (tableWin := tk.Toplevel(self.window))
         tableWin.title('Insert Table')
-        tableWin.geometry('240x130')
+        tableWin.geometry('260x165')
         tableWin.resizable(False, False)
         tableWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
 
         rows_var = tk.IntVar(value=3)
         columns_var = tk.IntVar(value=3)
+        header_var = tk.BooleanVar(value=True)
 
         tk.Label(tableWin, text='Rows').grid(row=0, column=0, sticky='e', padx=(14, 8), pady=(14, 6))
         rows_spin = tk.Spinbox(tableWin, from_=1, to=50, width=6, textvariable=rows_var)
@@ -1071,8 +1072,11 @@ class RTFWindow:
         columns_spin = tk.Spinbox(tableWin, from_=1, to=20, width=6, textvariable=columns_var)
         columns_spin.grid(row=1, column=1, sticky='w', pady=6)
 
+        header_check = tk.Checkbutton(tableWin, text='Header row', variable=header_var)
+        header_check.grid(row=2, column=0, columnspan=2, sticky='w', padx=14, pady=6)
+
         buttonFrame = tk.Frame(tableWin)
-        buttonFrame.grid(row=2, column=0, columnspan=2, sticky='e', padx=14, pady=(8, 12))
+        buttonFrame.grid(row=3, column=0, columnspan=2, sticky='e', padx=14, pady=(8, 12))
 
         def applyTable():
             try:
@@ -1082,7 +1086,7 @@ class RTFWindow:
                 messagebox.showerror('Invalid table size', 'Rows and columns must be numbers')
                 return None
 
-            self.insertTable(rows, columns)
+            self.insertTable(rows, columns, header_var.get())
             self.killUIPopup()
             return None
 
@@ -1096,28 +1100,53 @@ class RTFWindow:
 
         return None
 
-    def buildTableText(self, rows, columns):
+    def columnLabel(self, column_index):
+        label = ''
+        column_index += 1
+        while column_index:
+            column_index, remainder = divmod(column_index - 1, 26)
+            label = chr(ord('A') + remainder) + label
+        return label
+
+    def formatTableRow(self, cells):
+        return '| ' + '\t| '.join(cells) + '\t|'
+
+    def buildTableText(self, rows, columns, has_header=False):
         rows = min(50, max(1, int(rows)))
         columns = min(20, max(1, int(columns)))
-        cell_number = 1
         table_rows = []
+
+        if has_header:
+            header_cells = [
+                f'Col {self.columnLabel(column_index)}'
+                for column_index in range(columns)
+            ]
+            separator_cells = [
+                '-' * max(3, len(cell))
+                for cell in header_cells
+            ]
+            table_rows.append(self.formatTableRow(header_cells))
+            table_rows.append(self.formatTableRow(separator_cells))
+            rows -= 1
+
+        cell_number = 1
         for _ in range(rows):
             cells = []
             for _ in range(columns):
                 cells.append(f'Cell {cell_number}')
                 cell_number += 1
-            table_rows.append('\t'.join(cells))
+            table_rows.append(self.formatTableRow(cells))
 
         return '\n'.join(table_rows)
 
-    def insertTable(self, rows, columns):
+    def insertTable(self, rows, columns, has_header=False):
         rows = min(50, max(1, int(rows)))
         columns = min(20, max(1, int(columns)))
 
         if self.text.tag_ranges('sel'):
             self.text.delete('sel.first', 'sel.last')
 
-        self.insertStyledText('insert', self.buildTableText(rows, columns), self.typing_style)
+        self.insertStyledText('insert', self.buildTableText(rows, columns, has_header), self.typing_style)
         self.refreshTableLayout()
         self.text.see('insert')
         self.updateToolbarStyleFromSelection()
@@ -1133,6 +1162,61 @@ class RTFWindow:
 
     def lineHasTableCells(self, line_number):
         return '\t' in self.text.get(f'{line_number}.0', f'{line_number}.end')
+
+    def tableRowCells(self, line_number):
+        line = self.text.get(f'{line_number}.0', f'{line_number}.end')
+        if '\t' not in line:
+            return []
+
+        cells = []
+        for part in line.split('\t'):
+            part = part.strip()
+            if part == '|':
+                continue
+            if part.startswith('|'):
+                part = part[1:].strip()
+            if part.endswith('|'):
+                part = part[:-1].strip()
+            cells.append(part)
+
+        return cells
+
+    def isTableSeparatorCells(self, cells):
+        return bool(cells) and all(re.fullmatch(r'-+', cell or '') for cell in cells)
+
+    def resizeHeaderSeparatorForTable(self, start_line, finish_line):
+        if finish_line - start_line < 1:
+            return None
+
+        separator_line = start_line + 1
+        separator_cells = self.tableRowCells(separator_line)
+        if not self.isTableSeparatorCells(separator_cells):
+            return None
+
+        column_count = len(separator_cells)
+        column_widths = [3] * column_count
+        for line_number in range(start_line, finish_line + 1):
+            if line_number == separator_line:
+                continue
+
+            cells = self.tableRowCells(line_number)
+            for column_index in range(min(column_count, len(cells))):
+                column_widths[column_index] = max(
+                    column_widths[column_index],
+                    len(cells[column_index]),
+                )
+
+        resized_separator = self.formatTableRow([
+            '-' * width
+            for width in column_widths
+        ])
+        current_separator = self.text.get(f'{separator_line}.0', f'{separator_line}.end')
+        if resized_separator == current_separator:
+            return None
+
+        self.text.delete(f'{separator_line}.0', f'{separator_line}.end')
+        self.text.insert(f'{separator_line}.0', resized_separator)
+        return None
 
     def tableLineCellWidths(self, line_number):
         line_start = f'{line_number}.0'
@@ -1195,6 +1279,7 @@ class RTFWindow:
                 line_number += 1
             block_finish = line_number - 1
 
+            self.resizeHeaderSeparatorForTable(block_start, block_finish)
             tag = f'{self.TABLE_TAG_PREFIX}{block_start}'
             tab_stops = self.tableTabStopsForLines(block_start, block_finish)
             self.text.tag_configure(tag, tabs=tab_stops)

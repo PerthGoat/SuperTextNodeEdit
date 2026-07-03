@@ -197,11 +197,12 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(rtf.startswith(self.window.RTF_HEADER))
         self.assertTrue(rtf.endswith("}"))
 
-    def test_insert_table_creates_tab_separated_rows_with_elastic_tab_tag(self):
+    def test_insert_table_creates_pipe_styled_rows_with_elastic_tab_tag(self):
         self.window.insertTable(2, 3)
 
         self.assertEqual(
-            "Cell 1\tCell 2\tCell 3\nCell 4\tCell 5\tCell 6\n",
+            "| Cell 1\t| Cell 2\t| Cell 3\t|\n"
+            "| Cell 4\t| Cell 5\t| Cell 6\t|\n",
             self.window.text.get("1.0", "end"),
         )
         table_tag = next(
@@ -210,6 +211,32 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         )
         self.assertTrue(self.window.text.tag_cget(table_tag, "tabs"))
         self.assertIn(table_tag, self.window.text.tag_names("2.0"))
+
+    def test_insert_table_with_header_adds_separator_row(self):
+        self.window.insertTable(3, 2, has_header=True)
+
+        self.assertEqual(
+            "| Col A\t| Col B\t|\n"
+            "| ------\t| ------\t|\n"
+            "| Cell 1\t| Cell 2\t|\n"
+            "| Cell 3\t| Cell 4\t|\n",
+            self.window.text.get("1.0", "end"),
+        )
+
+    def test_header_separator_grows_to_match_widest_column_text(self):
+        self.window.insertTable(3, 3, has_header=True)
+        self.window.text.insert("1.7", " Aaaaaaa")
+        self.window.text.insert("3.8", " Text")
+
+        self.window.refreshTableLayout()
+
+        self.assertEqual(
+            "| Col A Aaaaaaa\t| Col B\t| Col C\t|\n"
+            "| -------------\t| ------\t| ------\t|\n"
+            "| Cell 1 Text\t| Cell 2\t| Cell 3\t|\n"
+            "| Cell 4\t| Cell 5\t| Cell 6\t|\n",
+            self.window.text.get("1.0", "end"),
+        )
 
     def test_rtf_export_and_import_round_trips_tabs(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
