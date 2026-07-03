@@ -3,7 +3,7 @@
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
 # or anything complex to get it running
 import tkinter as tk
-from tkinter import colorchooser, messagebox, font, ttk
+from tkinter import colorchooser, messagebox, font, simpledialog, ttk
 
 # threading
 # used for action queue
@@ -111,6 +111,26 @@ class RTFWindow:
         self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
         
         self.tkinter_font = tk.font.Font(family='Consolas', size=12)
+
+        available_fonts = sorted(set(font.families()))
+        preferred_fonts = [
+            "Consolas",
+            "Arial",
+            "Calibri",
+            "Times New Roman",
+            "Courier New",
+            "Verdana",
+        ]
+        font_values = preferred_fonts + [
+            family for family in available_fonts if family not in preferred_fonts
+        ]
+
+        self.font_values = font_values
+        self.font_family_var = tk.StringVar(value=self.DEFAULT_FONT_FAMILY)
+        self.font_size_var = tk.IntVar(value=self.DEFAULT_FONT_SIZE)
+        self.bold_menu_var = tk.BooleanVar(value=False)
+        self.italic_menu_var = tk.BooleanVar(value=False)
+        self.createMenuBar()
         
         # window design goes here
         
@@ -122,17 +142,7 @@ class RTFWindow:
         treeFrame = tk.Frame(panedWin)
         #treeFrame.grid(row=0, column=0, sticky='nsw') # not 100% fill
         panedWin.add(treeFrame)
-        
-        # buttons to manipulate tree
-        buttonFrame = tk.Frame(treeFrame)
-        buttonFrame.pack(anchor='w')
-        
-        # everything is stacked to the left
-        tk.Button(buttonFrame, text='update', command=self.populateNodeTree).pack(side='left')
-        tk.Button(buttonFrame, text='new', command=self.createNewNode).pack(side='left')
-        tk.Button(buttonFrame, text='rename', command=self.renameNode).pack(side='left')
-        tk.Button(buttonFrame, text='delete', command=self.deleteNode).pack(side='left')
-        
+
         # browse is used because multiselect is hard, and this works fine for a tree-based text editor
         
         ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
@@ -168,79 +178,6 @@ class RTFWindow:
         #textFrame.grid(row=0, column=1, sticky='nsew')
         panedWin.add(textFrame)
         
-        # control bar is here, only save button for now
-        controlFrame = tk.Frame(textFrame)
-        controlFrame.pack(fill='x', anchor='w')
-
-        tk.Button(controlFrame, text='save', command=self.saveRTF).pack(side='left')
-
-        available_fonts = sorted(set(font.families()))
-        preferred_fonts = [
-            "Consolas",
-            "Arial",
-            "Calibri",
-            "Times New Roman",
-            "Courier New",
-            "Verdana",
-        ]
-        font_values = preferred_fonts + [
-            family for family in available_fonts if family not in preferred_fonts
-        ]
-
-        tk.Label(controlFrame, text='Font').pack(side='left', padx=(12, 2))
-        self.font_family_var = tk.StringVar(value=self.DEFAULT_FONT_FAMILY)
-        self.font_family_box = ttk.Combobox(
-            controlFrame,
-            textvariable=self.font_family_var,
-            values=font_values,
-            width=24,
-            state='readonly',
-        )
-        self.font_family_box.pack(side='left')
-        self.font_family_box.bind(
-            '<<ComboboxSelected>>',
-            lambda _: self.applySelectedFontFamily(),
-        )
-
-        tk.Label(controlFrame, text='Size').pack(side='left', padx=(8, 2))
-        self.font_size_var = tk.IntVar(value=self.DEFAULT_FONT_SIZE)
-        self.font_size_spinbox = tk.Spinbox(
-            controlFrame,
-            from_=6,
-            to=96,
-            width=4,
-            textvariable=self.font_size_var,
-            command=self.applySelectedFontSize,
-        )
-        self.font_size_spinbox.pack(side='left')
-        self.font_size_spinbox.bind('<Return>', lambda _: self.applySelectedFontSize())
-        self.font_size_spinbox.bind('<FocusOut>', lambda _: self.applySelectedFontSize())
-
-        self.text_color_button = tk.Button(
-            controlFrame,
-            text='Text color',
-            command=self.chooseTextColorForSelection,
-        )
-        self.text_color_button.pack(side='left', padx=(8, 0))
-
-        self.bold_button = tk.Button(
-            controlFrame,
-            text='B',
-            width=3,
-            font=(self.DEFAULT_FONT_FAMILY, self.DEFAULT_FONT_SIZE, 'bold'),
-            command=self.toggleBoldForSelection,
-        )
-        self.bold_button.pack(side='left', padx=(8, 0))
-
-        self.italic_button = tk.Button(
-            controlFrame,
-            text='I',
-            width=3,
-            font=(self.DEFAULT_FONT_FAMILY, self.DEFAULT_FONT_SIZE, 'italic'),
-            command=self.toggleItalicForSelection,
-        )
-        self.italic_button.pack(side='left', padx=(2, 0))
-        
         self.text = ScrollableText(textFrame, font=self.tkinter_font)
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
         
@@ -273,9 +210,123 @@ class RTFWindow:
         
         if self.start_mainloop:
             self.window.mainloop()
+
+    def createMenuBar(self):
+        menu_bar = tk.Menu(self.window)
+
+        file_menu = tk.Menu(menu_bar, tearoff=False)
+        file_menu.add_command(label='Save', accelerator='Ctrl+S', command=self.saveRTF)
+        file_menu.add_separator()
+        file_menu.add_command(label='Exit', command=self.window.destroy)
+        menu_bar.add_cascade(label='File', menu=file_menu)
+
+        node_menu = tk.Menu(menu_bar, tearoff=False)
+        node_menu.add_command(label='Update', command=self.populateNodeTree)
+        node_menu.add_separator()
+        node_menu.add_command(label='New', command=self.createNewNode)
+        node_menu.add_command(label='Rename', command=self.renameNode)
+        node_menu.add_command(label='Delete', command=self.deleteNode)
+        menu_bar.add_cascade(label='Nodes', menu=node_menu)
+
+        format_menu = tk.Menu(menu_bar, tearoff=False)
+
+        format_menu.add_command(label='Font Family...', command=self.showFontFamilyDialog)
+
+        size_menu = tk.Menu(format_menu, tearoff=False)
+        for size in (6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72, 96):
+            size_menu.add_radiobutton(
+                label=str(size),
+                variable=self.font_size_var,
+                value=size,
+                command=self.applySelectedFontSize,
+            )
+        size_menu.add_separator()
+        size_menu.add_command(label='Custom...', command=self.askForFontSize)
+        format_menu.add_cascade(label='Font Size', menu=size_menu)
+
+        format_menu.add_command(label='Text Color...', command=self.chooseTextColorForSelection)
+        format_menu.add_separator()
+        format_menu.add_checkbutton(
+            label='Bold',
+            accelerator='Ctrl+B',
+            variable=self.bold_menu_var,
+            command=self.toggleBoldForSelection,
+        )
+        format_menu.add_checkbutton(
+            label='Italic',
+            accelerator='Ctrl+I',
+            variable=self.italic_menu_var,
+            command=self.toggleItalicForSelection,
+        )
+        menu_bar.add_cascade(label='Format', menu=format_menu)
+
+        self.window.config(menu=menu_bar)
+        self.window.bind_all('<Control-s>', self.saveRTFShortcut)
+        self.window.bind_all('<Control-S>', self.saveRTFShortcut)
     
     def LogWithDateTime(self, *strstolog : str):
         print(datetime.datetime.now(), ':', *strstolog)
+
+    def saveRTFShortcut(self, event=None):
+        self.saveRTF()
+        return 'break'
+
+    def showFontFamilyDialog(self):
+        if self.UI_popup is not None:
+            self.UI_popup.lift()
+            return None
+
+        self.UI_popup = (fontWin := tk.Toplevel(self.window))
+        fontWin.title('Font Family')
+        fontWin.geometry('320x420')
+        fontWin.minsize(240, 260)
+        fontWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
+        fontWin.grid_rowconfigure(0, weight=1)
+        fontWin.grid_columnconfigure(0, weight=1)
+
+        listFrame = tk.Frame(fontWin)
+        listFrame.grid(row=0, column=0, sticky='nsew', padx=8, pady=(8, 4))
+        listFrame.grid_rowconfigure(0, weight=1)
+        listFrame.grid_columnconfigure(0, weight=1)
+
+        fontList = tk.Listbox(listFrame, exportselection=False)
+        fontList.grid(row=0, column=0, sticky='nsew')
+
+        scrollbar = tk.Scrollbar(listFrame, orient='vertical', command=fontList.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        fontList.configure(yscrollcommand=scrollbar.set)
+
+        for family in self.font_values:
+            fontList.insert('end', family)
+
+        current_family = self.font_family_var.get()
+        if current_family in self.font_values:
+            current_index = self.font_values.index(current_family)
+            fontList.selection_set(current_index)
+            fontList.activate(current_index)
+            fontList.see(current_index)
+
+        buttonFrame = tk.Frame(fontWin)
+        buttonFrame.grid(row=1, column=0, sticky='ew', padx=8, pady=(4, 8))
+
+        def applyFontFamily():
+            selection = fontList.curselection()
+            if len(selection) == 0:
+                return None
+
+            self.font_family_var.set(fontList.get(selection[0]))
+            result = self.applySelectedFontFamily()
+            self.killUIPopup()
+            return result
+
+        tk.Button(buttonFrame, text='Apply', command=applyFontFamily).pack(side='right')
+        tk.Button(buttonFrame, text='Cancel', command=self.killUIPopup).pack(side='right', padx=(0, 6))
+
+        fontList.bind('<Double-1>', lambda _: applyFontFamily())
+        fontList.bind('<Return>', lambda _: applyFontFamily())
+        fontList.focus_set()
+
+        return None
 
     def getNextTkinterItemId(self):
         # from 0 to the max item id
@@ -490,9 +541,8 @@ class RTFWindow:
 
         self.font_family_var.set(style["font_family"])
         self.font_size_var.set(style["font_size"])
-
-        self.bold_button.configure(relief='sunken' if style["bold"] else 'raised')
-        self.italic_button.configure(relief='sunken' if style["italic"] else 'raised')
+        self.bold_menu_var.set(style["bold"])
+        self.italic_menu_var.set(style["italic"])
 
         return None
 
@@ -531,6 +581,7 @@ class RTFWindow:
     def applyStylePropertyToSelection(self, property_name, value):
         selected_range = self.selectedTextRange()
         if selected_range is None:
+            self.updateToolbarStyleFromSelection()
             return None
 
         result = self.applyStylePropertyToRange(
@@ -554,6 +605,7 @@ class RTFWindow:
     def toggleStylePropertyForSelection(self, property_name):
         selected_range = self.selectedTextRange()
         if selected_range is None:
+            self.updateToolbarStyleFromSelection()
             return None
 
         start, finish = selected_range
@@ -588,6 +640,21 @@ class RTFWindow:
         font_size = min(96, max(6, font_size))
         self.font_size_var.set(font_size)
         return self.applyStylePropertyToSelection("font_size", font_size)
+
+    def askForFontSize(self):
+        font_size = simpledialog.askinteger(
+            'Font Size',
+            'Size:',
+            parent=self.window,
+            initialvalue=self.font_size_var.get(),
+            minvalue=6,
+            maxvalue=96,
+        )
+        if font_size is None:
+            return None
+
+        self.font_size_var.set(font_size)
+        return self.applySelectedFontSize()
 
     def chooseTextColorForSelection(self):
         selected_range = self.selectedTextRange()
