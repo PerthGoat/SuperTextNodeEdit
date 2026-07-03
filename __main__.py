@@ -248,6 +248,9 @@ class RTFWindow:
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
         self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
         self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
+        self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
+        self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
+        self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
         
         self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
         
@@ -468,6 +471,31 @@ class RTFWindow:
                 style.update(self.style_tags[tag])
         return style
 
+    def getToolbarStyleIndex(self):
+        if self.text.tag_ranges('sel'):
+            return self.text.index('sel.first')
+
+        index = self.text.index('insert')
+        if self.text.compare(index, '>=', 'end'):
+            index = self.text.index('end-1c')
+
+        return index
+
+    def scheduleToolbarStyleUpdate(self, event=None):
+        self.window.after_idle(self.updateToolbarStyleFromSelection)
+        return None
+
+    def updateToolbarStyleFromSelection(self):
+        style = self.getTextStyleAt(self.getToolbarStyleIndex())
+
+        self.font_family_var.set(style["font_family"])
+        self.font_size_var.set(style["font_size"])
+
+        self.bold_button.configure(relief='sunken' if style["bold"] else 'raised')
+        self.italic_button.configure(relief='sunken' if style["italic"] else 'raised')
+
+        return None
+
     def insertStyledText(self, index, text, style):
         tag = self.getStyleTag(style)
         if tag is None:
@@ -505,12 +533,14 @@ class RTFWindow:
         if selected_range is None:
             return None
 
-        return self.applyStylePropertyToRange(
+        result = self.applyStylePropertyToRange(
             selected_range[0],
             selected_range[1],
             property_name,
             value,
         )
+        self.updateToolbarStyleFromSelection()
+        return result
 
     def selectionAllHasStyleProperty(self, start, finish, property_name, value):
         current = start
@@ -533,7 +563,9 @@ class RTFWindow:
             property_name,
             True,
         )
-        return self.applyStylePropertyToRange(start, finish, property_name, new_value)
+        result = self.applyStylePropertyToRange(start, finish, property_name, new_value)
+        self.updateToolbarStyleFromSelection()
+        return result
 
     def toggleBoldForSelection(self):
         return self.toggleStylePropertyForSelection("bold")

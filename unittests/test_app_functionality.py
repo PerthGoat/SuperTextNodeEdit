@@ -216,6 +216,20 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(r"Hello ", rtf)
         self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
+    def test_toolbar_size_updates_from_current_selection(self):
+        self.window.text.insert("1.0", "Small Big")
+        self.window.applyStylePropertyToRange("1.0", "1.5", "font_size", 10)
+        self.window.applyStylePropertyToRange("1.6", "1.9", "font_size", 24)
+
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.updateToolbarStyleFromSelection()
+        self.assertEqual(10, self.window.font_size_var.get())
+
+        self.window.text.tag_remove("sel", "1.0", "1.5")
+        self.window.text.tag_add("sel", "1.6", "1.9")
+        self.window.updateToolbarStyleFromSelection()
+        self.assertEqual(24, self.window.font_size_var.get())
+
     def test_display_nested_rtf_structure_imports_text_formatting(self):
         rtf_text = (
             r"{\rtf1\ansi\pard "
