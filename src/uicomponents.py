@@ -48,6 +48,8 @@ class ScrollableText(tk.Frame):
         self.tag_names = text.tag_names
         self.tag_remove = text.tag_remove
         self.tag_ranges = text.tag_ranges
+        self.update_idletasks = text.update_idletasks
+        self.winfo_width = text.winfo_width
 
 # Scrollable treeview, to add horizontal and vertical scrolling to the tree view
 class ScrollableTreeView(tk.Frame):

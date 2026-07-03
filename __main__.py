@@ -53,6 +53,7 @@ class PrioritizedItem:
 class RTFWindow:
     ACTION_QUEUE_POLL_MS = 10
     FORMAT_TAG_PREFIX = "rtf_style_"
+    ALIGNMENT_TAG_PREFIX = "rtf_alignment_"
     DEFAULT_FONT_FAMILY = "Consolas"
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
@@ -93,6 +94,7 @@ class RTFWindow:
         self.style_tag_names = {}
         self.style_tag_counter = 0
         self.typing_style = self.defaultTextStyle()
+        self.center_layout_after_id = None
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
@@ -116,6 +118,12 @@ class RTFWindow:
         self.window.geometry('1200x650') # starting window size, I thought this size was pretty good
         self.window.grid_columnconfigure(1, weight=1) # for responsive-resize
         self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
+        original_destroy = self.window.destroy
+        def destroyWindow():
+            self.cancelScheduledCenteredTextLayoutRefresh()
+            original_destroy()
+        self.window.destroy = destroyWindow
+        self.window.bind('<Destroy>', self.cancelScheduledCenteredTextLayoutRefresh, add='+')
         
         self.tkinter_font = tk.font.Font(family='Consolas', size=12)
 
@@ -137,6 +145,7 @@ class RTFWindow:
         self.font_size_var = tk.IntVar(value=self.DEFAULT_FONT_SIZE)
         self.bold_menu_var = tk.BooleanVar(value=False)
         self.italic_menu_var = tk.BooleanVar(value=False)
+        self.center_menu_var = tk.BooleanVar(value=False)
         self.createMenuBar()
         
         # window design goes here
@@ -192,10 +201,13 @@ class RTFWindow:
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
         self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
         self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
+        self.text.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
         self.text.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
+        self.text.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
         self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
         self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
+        self.text.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
         self.text.bind('<Motion>', self.updateImageResizeCursor, add='+')
         self.text.bind('<ButtonPress-1>', self.beginImageResize, add='+')
         self.text.bind('<B1-Motion>', self.dragImageResize, add='+')
@@ -269,6 +281,12 @@ class RTFWindow:
             accelerator='Ctrl+I',
             variable=self.italic_menu_var,
             command=self.toggleItalicForSelection,
+        )
+        format_menu.add_checkbutton(
+            label='Centered Text',
+            accelerator='Ctrl+E',
+            variable=self.center_menu_var,
+            command=self.toggleCenterAlignmentForSelection,
         )
         menu_bar.add_cascade(label='Format', menu=format_menu)
 
@@ -465,7 +483,13 @@ class RTFWindow:
             "color": self.DEFAULT_TEXT_COLOR,
             "bold": False,
             "italic": False,
+            "alignment": "left",
         }
+
+    def normalizeAlignment(self, alignment):
+        if alignment == "center":
+            return "center"
+        return "left"
 
     def normalizeColor(self, color):
         if color in (None, "", "default"):
@@ -489,6 +513,7 @@ class RTFWindow:
             self.normalizeColor(style.get("color", self.DEFAULT_TEXT_COLOR)),
             bool(style.get("bold", False)),
             bool(style.get("italic", False)),
+            self.normalizeAlignment(style.get("alignment", "left")),
         )
 
     def getStyleTag(self, style):
@@ -508,6 +533,7 @@ class RTFWindow:
             "color": key[2],
             "bold": key[3],
             "italic": key[4],
+            "alignment": key[5],
         }
 
         font_style_parts = []
@@ -534,15 +560,36 @@ class RTFWindow:
                 style.update(self.style_tags[tag])
         return style
 
+    def indexHasAlignmentPadding(self, index):
+        return any(
+            self.isAlignmentPaddingTag(tag)
+            for tag in self.text.tag_names(index)
+        )
+
+    def nextNonPaddingIndex(self, index):
+        current = self.text.index(index)
+        line_end = self.text.index(f'{current} lineend')
+        while self.text.compare(current, '<', line_end):
+            if not self.indexHasAlignmentPadding(current):
+                return current
+            current = self.text.index(f'{current}+1c')
+        return self.text.index(index)
+
     def getToolbarStyleIndex(self):
         if self.text.tag_ranges('sel'):
             return self.text.index('sel.first')
 
         index = self.text.index('insert')
         if self.text.compare(index, '>', '1.0'):
-            index = self.text.index(f'{index}-1c')
+            previous_index = self.text.index(f'{index}-1c')
+            if self.indexHasAlignmentPadding(previous_index):
+                return self.nextNonPaddingIndex(index)
+            index = previous_index
         elif self.text.compare(index, '>=', 'end'):
             index = self.text.index('end-1c')
+
+        if self.indexHasAlignmentPadding(index):
+            return self.nextNonPaddingIndex(index)
 
         return index
 
@@ -551,15 +598,183 @@ class RTFWindow:
         self.font_size_var.set(style["font_size"])
         self.bold_menu_var.set(style["bold"])
         self.italic_menu_var.set(style["italic"])
+        self.center_menu_var.set(style["alignment"] == "center")
 
     def setTypingStyleProperty(self, property_name, value):
         self.typing_style = {**self.defaultTextStyle(), **self.typing_style}
         self.typing_style[property_name] = value
         if property_name == "color":
             self.typing_style[property_name] = self.normalizeColor(value)
+        elif property_name == "alignment":
+            self.typing_style[property_name] = self.normalizeAlignment(value)
 
         self.setToolbarStyleVars(self.typing_style)
         return 'break'
+
+    def textStyleFont(self, style):
+        font_style_parts = []
+        if style.get("bold", False):
+            font_style_parts.append("bold")
+        if style.get("italic", False):
+            font_style_parts.append("italic")
+
+        font_args = (
+            style.get("font_family", self.DEFAULT_FONT_FAMILY),
+            int(style.get("font_size", self.DEFAULT_FONT_SIZE)),
+        )
+        if font_style_parts:
+            font_args += (" ".join(font_style_parts),)
+
+        return font.Font(font=font_args)
+
+    def centeredLineContentWidth(self, line_start, line_end):
+        width = 0
+        current = line_start
+        font_cache = {}
+        while self.text.compare(current, '<', line_end):
+            next_index = self.text.index(f'{current}+1c')
+            if self.indexHasAlignmentPadding(current):
+                current = next_index
+                continue
+
+            char = self.text.get(current, next_index)
+            style = self.getTextStyleAt(current)
+            key = self._style_key(style)
+            if key not in font_cache:
+                font_cache[key] = self.textStyleFont(style)
+            width += font_cache[key].measure(char)
+            current = next_index
+        return width
+
+    def centeredLinePadding(self, line_start, line_end, text_width):
+        content_width = self.centeredLineContentWidth(line_start, line_end)
+        space_width = max(1, self.tkinter_font.measure(' '))
+        padding_width = max(0, (text_width - content_width) // 2)
+        return ' ' * (padding_width // space_width)
+
+    def lineHasCenteredText(self, line_start, line_end):
+        current = line_start
+        while self.text.compare(current, '<', line_end):
+            if self.getTextStyleAt(current).get("alignment") == "center":
+                return True
+            current = self.text.index(f'{current}+1c')
+        return False
+
+    def hasCenteredStyleRanges(self):
+        return any(
+            style.get("alignment") == "center" and self.text.tag_ranges(tag)
+            for tag, style in self.style_tags.items()
+        )
+
+    def isAlignmentPaddingTag(self, tag):
+        return tag.startswith(self.ALIGNMENT_TAG_PREFIX)
+
+    def removeCenteredTextPadding(self):
+        for tag in list(self.text.tag_names()):
+            if not self.isAlignmentPaddingTag(tag):
+                continue
+
+            ranges = list(self.text.tag_ranges(tag))
+            for start, finish in reversed(list(zip(ranges[0::2], ranges[1::2]))):
+                self.text.delete(start, finish)
+            self.text.tag_remove(tag, '1.0', 'end')
+
+    def centeredLinePaddingRange(self, line_start):
+        for tag in self.text.tag_names(line_start):
+            if not self.isAlignmentPaddingTag(tag):
+                continue
+
+            ranges = list(self.text.tag_ranges(tag))
+            if len(ranges) >= 2:
+                return tag, ranges[0], ranges[1]
+
+        return None, None, None
+
+    def removeCenteredLinePadding(self, line_start):
+        tag, start, finish = self.centeredLinePaddingRange(line_start)
+        if tag is None:
+            return None
+
+        self.text.delete(start, finish)
+        self.text.tag_remove(tag, '1.0', 'end')
+        return None
+
+    def setCenteredLinePadding(self, line_start, padding, tag):
+        existing_tag, start, finish = self.centeredLinePaddingRange(line_start)
+        existing_padding = ''
+        if existing_tag is not None:
+            existing_padding = self.text.get(start, finish)
+
+        if existing_padding == padding:
+            return None
+
+        if existing_tag is not None:
+            self.text.delete(start, finish)
+            self.text.tag_remove(existing_tag, '1.0', 'end')
+
+        if len(padding) == 0:
+            return None
+
+        self.text.insert(line_start, padding)
+        self.text.tag_add(tag, line_start, f'{line_start}+{len(padding)}c')
+        for style_tag in list(self.style_tags):
+            self.text.tag_remove(style_tag, line_start, f'{line_start}+{len(padding)}c')
+
+        return None
+
+    def scheduleCenteredTextLayoutRefresh(self, event=None):
+        if self.center_layout_after_id is None:
+            self.center_layout_after_id = self.window.after_idle(
+                self.runScheduledCenteredTextLayoutRefresh
+            )
+        return None
+
+    def cancelScheduledCenteredTextLayoutRefresh(self, event=None):
+        if self.center_layout_after_id is not None:
+            try:
+                self.window.after_cancel(self.center_layout_after_id)
+            except tk.TclError:
+                pass
+            self.center_layout_after_id = None
+
+        return None
+
+    def runScheduledCenteredTextLayoutRefresh(self):
+        self.center_layout_after_id = None
+        return self.refreshCenteredTextLayout()
+
+    def refreshCenteredTextLayout(self):
+        self.cancelScheduledCenteredTextLayoutRefresh()
+
+        if not self.hasCenteredStyleRanges():
+            self.removeCenteredTextPadding()
+            return None
+
+        self.text.update_idletasks()
+        text_width = max(1, self.text.winfo_width() - 6)
+        last_line = int(self.text.index('end-1c').split('.')[0])
+        refreshed_padding_tags = set()
+
+        for line_number in range(1, last_line + 1):
+            line_start = f'{line_number}.0'
+            line_end = f'{line_number}.end'
+            if not self.lineHasCenteredText(line_start, line_end):
+                self.removeCenteredLinePadding(line_start)
+                continue
+
+            padding = self.centeredLinePadding(line_start, line_end, text_width)
+            tag = f'{self.ALIGNMENT_TAG_PREFIX}{line_number}'
+            refreshed_padding_tags.add(tag)
+            self.setCenteredLinePadding(line_start, padding, tag)
+
+        for tag in list(self.text.tag_names()):
+            if self.isAlignmentPaddingTag(tag) and tag not in refreshed_padding_tags:
+                ranges = list(self.text.tag_ranges(tag))
+                for start, finish in reversed(list(zip(ranges[0::2], ranges[1::2]))):
+                    self.text.delete(start, finish)
+                self.text.tag_remove(tag, '1.0', 'end')
+
+        return None
 
     def scheduleToolbarStyleUpdate(self, event=None):
         self.window.after_idle(self.updateToolbarStyleFromSelection)
@@ -579,6 +794,7 @@ class RTFWindow:
             self.text.insert(index, text)
         else:
             self.text.insert(index, text, (tag,))
+        self.scheduleCenteredTextLayoutRefresh()
 
     def typedCharacterFromEvent(self, event):
         if event.state & 0x4:
@@ -635,6 +851,7 @@ class RTFWindow:
                 self.text.tag_add(tag, current, next_index)
             current = next_index
 
+        self.scheduleCenteredTextLayoutRefresh()
         return 'break'
 
     def applyStylePropertyToSelection(self, property_name, value):
@@ -660,6 +877,35 @@ class RTFWindow:
 
         return True
 
+    def selectionLineRanges(self, start, finish):
+        last = finish
+        if self.text.compare(last, '>', start) and self.text.compare(
+            last,
+            '==',
+            f'{last} linestart',
+        ):
+            last = self.text.index(f'{last}-1c')
+
+        line_number = int(self.text.index(f'{start} linestart').split('.')[0])
+        last_line_number = int(self.text.index(f'{last} linestart').split('.')[0])
+        return [
+            (f'{line}.0', f'{line}.end')
+            for line in range(line_number, last_line_number + 1)
+        ]
+
+    def lineRangesAllHaveStyleProperty(self, line_ranges, property_name, value):
+        for line_start, line_end in line_ranges:
+            if self.text.compare(line_start, '==', line_end):
+                return False
+            if not self.selectionAllHasStyleProperty(
+                line_start,
+                line_end,
+                property_name,
+                value,
+            ):
+                return False
+        return True
+
     def toggleStylePropertyForSelection(self, property_name):
         selected_range = self.selectedTextRange(show_error=False)
         if selected_range is None:
@@ -682,6 +928,66 @@ class RTFWindow:
 
     def toggleItalicForSelection(self):
         return self.toggleStylePropertyForSelection("italic")
+
+    def toggleCenterAlignmentForSelection(self):
+        selected_range = self.selectedTextRange(show_error=False)
+        if selected_range is None:
+            self.removeCenteredTextPadding()
+            current = self.text.index('insert')
+            line_start = self.text.index(f'{current} linestart')
+            line_end = self.text.index(f'{current} lineend')
+            if self.text.compare(line_start, '==', line_end):
+                new_alignment = (
+                    "left"
+                    if self.typing_style.get("alignment") == "center"
+                    else "center"
+                )
+                return self.setTypingStyleProperty("alignment", new_alignment)
+
+            new_alignment = (
+                "left"
+                if self.selectionAllHasStyleProperty(
+                    line_start,
+                    line_end,
+                    "alignment",
+                    "center",
+                )
+                else "center"
+            )
+            result = self.applyStylePropertyToRange(
+                line_start,
+                line_end,
+                "alignment",
+                new_alignment,
+            )
+            self.updateToolbarStyleFromSelection()
+            self.scheduleCenteredTextLayoutRefresh()
+            return result
+
+        self.removeCenteredTextPadding()
+        selected_range = self.selectedTextRange(show_error=False)
+        if selected_range is None:
+            return 'break'
+
+        start, finish = selected_range
+        line_ranges = self.selectionLineRanges(start, finish)
+        new_alignment = (
+            "left"
+            if self.lineRangesAllHaveStyleProperty(line_ranges, "alignment", "center")
+            else "center"
+        )
+        result = 'break'
+        for line_start, line_end in line_ranges:
+            if self.text.compare(line_start, '<', line_end):
+                result = self.applyStylePropertyToRange(
+                    line_start,
+                    line_end,
+                    "alignment",
+                    new_alignment,
+                )
+        self.updateToolbarStyleFromSelection()
+        self.scheduleCenteredTextLayoutRefresh()
+        return result
 
     def applySelectedFontFamily(self):
         return self.applyStylePropertyToSelection(
@@ -1104,8 +1410,20 @@ class RTFWindow:
             self.insertStyledText('end', '\n', style)
             return style
 
+        if command == 'pard':
+            style["alignment"] = "left"
+            return style
+
         if command == 'plain':
             return self.defaultTextStyle()
+
+        if command == 'qc':
+            style["alignment"] = "center"
+            return style
+
+        if command == 'ql':
+            style["alignment"] = "left"
+            return style
 
         bold_match = re.fullmatch(r'b(0?)', command)
         if bold_match:
@@ -1302,6 +1620,9 @@ class RTFWindow:
         if style["italic"]:
             commands.append(r'\i')
 
+        if style["alignment"] == "center":
+            commands.append(r'\qc')
+
         return ''.join(commands)
 
     def currentDumpStyle(self, active_style_tags):
@@ -1316,9 +1637,18 @@ class RTFWindow:
         font_ids = {self.DEFAULT_FONT_FAMILY: 0}
         color_ids = {}
         active_style_tags = []
+        active_padding_tags = []
         has_formatting = False
 
         for token_type, token_value, _ in textContents:
+            if token_type == 'tagon' and self.isAlignmentPaddingTag(token_value):
+                active_padding_tags.append(token_value)
+                continue
+
+            if token_type == 'tagoff' and token_value in active_padding_tags:
+                active_padding_tags.remove(token_value)
+                continue
+
             if token_type == 'tagon' and token_value in self.style_tags:
                 active_style_tags.append(token_value)
                 continue
@@ -1343,6 +1673,9 @@ class RTFWindow:
             if token_type != 'text':
                 continue
 
+            if active_padding_tags:
+                continue
+
             text = self.escapeRTFText(token_value)
             style = self.currentDumpStyle(active_style_tags)
             style_prefix = self.styleRTFCommandPrefix(style, font_ids, color_ids)
@@ -1359,6 +1692,23 @@ class RTFWindow:
             token_type in {'tagon', 'tagoff'} and token_value in self.style_tags
             for token_type, token_value, _ in self.text.dump(start, finish)
         )
+
+    def dumpTextWithoutAlignmentPadding(self, dumped_text):
+        active_padding_tags = []
+        text_parts = []
+        for token_type, token_value, _ in dumped_text:
+            if token_type == 'tagon' and self.isAlignmentPaddingTag(token_value):
+                active_padding_tags.append(token_value)
+                continue
+
+            if token_type == 'tagoff' and token_value in active_padding_tags:
+                active_padding_tags.remove(token_value)
+                continue
+
+            if token_type == 'text' and not active_padding_tags:
+                text_parts.append(token_value)
+
+        return text_parts
     
     # convert a text selection to RTF
     # start to finish of selection
@@ -1538,7 +1888,7 @@ class RTFWindow:
         
         selected_text = self.text.dump(sel_start, sel_end)
         
-        text_in_selection = [x[1] for x in selected_text if 'text' in x]
+        text_in_selection = self.dumpTextWithoutAlignmentPadding(selected_text)
         imgs_in_selection = [x[1] for x in selected_text if 'image' in x]
 
         ibytes = io.BytesIO()

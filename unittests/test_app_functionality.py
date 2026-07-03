@@ -217,6 +217,128 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(r"Hello ", rtf)
         self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
+    def test_centered_text_is_tagged_and_exported_to_rtf(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Title")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+
+        self.window.toggleCenterAlignmentForSelection()
+
+        style = self.window.getTextStyleAt("1.0")
+        self.assertEqual("center", style["alignment"])
+        self.assertTrue(self.window.center_menu_var.get())
+        style_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.FORMAT_TAG_PREFIX)
+        )
+        self.assertEqual("", self.window.text.tag_cget(style_tag, "justify"))
+
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+        alignment_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.ALIGNMENT_TAG_PREFIX)
+        )
+        padding_start, padding_end = self.window.text.tag_ranges(alignment_tag)
+        padding = self.window.text.get(padding_start, padding_end)
+        self.assertGreater(len(padding), 0)
+        self.assertEqual({" "}, set(padding))
+        self.assertEqual("Title", self.window.text.get(padding_end, "1.end"))
+
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"{\qc Title}", rtf)
+        self.assertNotIn(padding + "Title", rtf)
+
+    def test_alignment_padding_is_not_copied_as_plain_text(self):
+        self.window.text.insert("1.0", "Title")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        dumped_text = self.window.text.dump("1.0", "1.end")
+
+        self.assertEqual(["Title"], self.window.dumpTextWithoutAlignmentPadding(dumped_text))
+
+    def test_centered_layout_refresh_keeps_unchanged_padding_in_place(self):
+        self.window.text.insert("1.0", "Title\nBody")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+        before = self.window.text.dump("1.0", "end")
+
+        with mock.patch.object(
+            self.window.text,
+            "delete",
+            wraps=self.window.text.delete,
+        ) as delete_mock:
+            self.window.refreshCenteredTextLayout()
+
+        self.assertFalse(delete_mock.called)
+        self.assertEqual(before, self.window.text.dump("1.0", "end"))
+
+    def test_centered_text_can_be_toggled_back_to_left_after_layout_refresh(self):
+        self.window.text.insert("1.0", "Title")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        alignment_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.ALIGNMENT_TAG_PREFIX)
+        )
+        _, title_start = self.window.text.tag_ranges(alignment_tag)
+        self.window.text.tag_add("sel", title_start, f"{title_start}+5c")
+        self.window.toggleCenterAlignmentForSelection()
+
+        self.assertEqual("left", self.window.getTextStyleAt("1.0")["alignment"])
+        self.window.refreshCenteredTextLayout()
+        self.assertEqual("Title", self.window.text.get("1.0", "1.end"))
+
+    def test_cursor_at_start_of_centered_text_reports_centered_and_can_uncenter(self):
+        self.window.text.insert("1.0", "Title")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        alignment_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.ALIGNMENT_TAG_PREFIX)
+        )
+        _, title_start = self.window.text.tag_ranges(alignment_tag)
+        self.window.text.mark_set("insert", title_start)
+
+        self.window.updateToolbarStyleFromSelection()
+        self.assertTrue(self.window.center_menu_var.get())
+
+        self.window.toggleCenterAlignmentForSelection()
+
+        self.assertFalse(self.window.center_menu_var.get())
+        self.window.refreshCenteredTextLayout()
+        self.assertEqual("Title", self.window.text.get("1.0", "1.end"))
+        self.assertEqual("left", self.window.getTextStyleAt("1.0")["alignment"])
+
+    def test_display_nested_rtf_structure_imports_centered_text(self):
+        rtf_text = (
+            r"{\rtf1\ansi\pard "
+            r"{\fonttbl{\f0\fswiss Consolas;}}\f0 "
+            r"\qc Centered\par \ql Left}"
+        )
+
+        parsed = app.RTFParser(rtf_text).parseme()
+
+        self.window.displayNestedRTFStructure(parsed)
+
+        self.assertEqual("Centered\nLeft\n", self.window.text.get("1.0", "end"))
+        self.assertEqual("center", self.window.getTextStyleAt("1.0")["alignment"])
+        self.assertEqual("left", self.window.getTextStyleAt("2.0")["alignment"])
+
     def test_resized_embedded_image_exports_resized_dimensions(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         embedded_name = self.window.createEmbeddedImage(
