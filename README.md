@@ -28,6 +28,14 @@ Since this uses standard Python bindings, it is naturally cross-platform. This m
 You can run this as long as you have Python + PIL. PIL is used because it makes it very easy to convert images to the TK format, grab the clipboard, and ensure that the images in the document are
 consitent in their formatting. I like them to all be PNG because I like PNG.
 
+## Tests
+Run the full unit test suite with:
+```shell
+python -m unittest discover -s unittests -p "test*.py"
+```
+
+The suite covers parser behavior, helper functions, core node/file workflows, RTF text conversion, Tk layout checks, and a visual screenshot smoke test. The screenshot test saves artifacts under `unittests/artifacts/visual/` when the active desktop allows screen capture; it skips cleanly in headless or restricted environments.
+
 ## Limitations?
 Currently, this program can only handle a limited subset of RTF. This may never change. This means that if someone modified one of your docs and sent it back to you, there's
 no guarantee it would work in this program.

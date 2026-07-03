@@ -16,7 +16,7 @@ class TestRTFParsing(unittest.TestCase):
         with open(badfile_path, 'r') as fi:
             rtf_text = fi.read()
 
-        RTFParser(rtf_text).parseme()
+        self.assertRaises(Exception, lambda: RTFParser(rtf_text).parseme())
 
     def test_clippastefile(self):
         badfile_path = 'unittests/files/debugfile.rtf'

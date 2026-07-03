@@ -52,8 +52,9 @@ class PrioritizedItem:
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
-  def __init__(self):
-    configFile = 'rtfjournal.ini' # I used this name for no reason other than I liked it
+  def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
+    self.start_mainloop = start_mainloop
+    self.start_worker = start_worker
     
     # make sure a config file exists, and if not, create a base one
     if not os.path.exists(configFile):
@@ -177,13 +178,15 @@ class RTFWindow:
 
     # runs every 100ms
     # run threading on a single separate thread; this is a learning from horrific memory leaks
-    self.window.after_idle(lambda: Thread(target=self.processActionQueueItem, daemon=True).start())
+    if self.start_worker:
+      self.window.after_idle(lambda: Thread(target=self.processActionQueueItem, daemon=True).start())
 
     #self.populateNodeTree() # load nodes for file tree on startup
     # add initial load for file tree nodes on startup
     self.actionQueue.put(PrioritizedItem(0, self.populateNodeTree, "InitialPopulate"))
     
-    self.window.mainloop()
+    if self.start_mainloop:
+      self.window.mainloop()
   
   def LogWithDateTime(self, *strstolog : str):
     print(datetime.datetime.now(), ':', *strstolog)
