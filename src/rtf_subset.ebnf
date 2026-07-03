@@ -1,0 +1,38 @@
+(* Grammar for the RTF subset accepted by src/RTFParser.py.
+
+   This is a descriptive grammar for the current hand-rolled parser, not the
+   full RTF standard. The parser returns a nested token list rather than a parse
+   tree: commands become ("RTFCMD", value), root text becomes ("TEXT", value),
+   nested text becomes ("CMDPARAM", value), and groups become nested lists.
+*)
+
+document = group, trailing-whitespace ;
+
+group = "{", { item }, "}" ;
+
+item = group
+     | escaped-text
+     | unicode-text
+     | command
+     | text ;
+
+escaped-text = "\", ( "\" | "{" | "}" ) ;
+
+unicode-text = "\", "u", [ "-" ], digit, { digit }, "?" ;
+
+command = "\", command-char, { command-char }, [ whitespace ] ;
+
+text = whitespace
+     | text-char, { text-char } ;
+
+trailing-whitespace = { whitespace } ;
+
+command-char = ? any character except "{", "}", "\", space, tab, form feed,
+                 carriage return, line feed, and NUL ? ;
+
+text-char = ? any character except "{", "}", "\", space, tab, form feed,
+              carriage return, line feed, and NUL ? ;
+
+whitespace = " " | "\t" | "\f" | "\r" | "\n" | "\x00" ;
+
+digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
