@@ -135,6 +135,20 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(new_file.is_file())
         self.assertEqual(self.window.RTF_HEADER + "}", new_file.read_text())
 
+    def test_rename_node_refreshes_tree_and_reselects_renamed_node(self):
+        self.write_node("newNode33", "Node text")
+        self.window.populateNodeTree()
+        node = self.window.find_self("newNode33")
+
+        self.window.renameFileAndDir(node, "newNode33", "renamedNode")
+
+        self.assertFalse((self.node_dir / "newNode33").exists())
+        self.assertFalse((self.node_dir / "newNode33.rtf").exists())
+        self.assertTrue((self.node_dir / "renamedNode").is_dir())
+        self.assertTrue((self.node_dir / "renamedNode.rtf").is_file())
+        self.assertEqual("renamedNode", self.window.tree.item(self.window.selected_node)["text"])
+        self.assertEqual("renamedNode", self.window.get_node_path(self.window.selected_node))
+
     def test_convert_to_rtf_escapes_text_newlines_and_unicode(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         self.window.text.insert("1.0", "slash \\ brace { close }")
