@@ -435,6 +435,65 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("Title", self.window.text.get("1.0", "1.end"))
         self.assertEqual("left", self.window.getTextStyleAt("1.0")["alignment"])
 
+    def test_cursor_on_blank_line_after_centered_text_does_not_uncenter_previous_line(self):
+        self.window.text.insert("1.0", "Title\n")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        self.window.text.mark_set("insert", "2.0")
+
+        self.window.updateToolbarStyleFromSelection()
+        self.assertFalse(self.window.center_menu_var.get())
+
+        self.window.toggleCenterAlignmentForSelection()
+
+        self.assertEqual("center", self.window.getTextStyleAt("1.0")["alignment"])
+        self.window.refreshCenteredTextLayout()
+        self.assertEqual("Title", self.window.text.get("1.0", "1.end").strip())
+
+    def test_cursor_on_text_line_after_centered_text_reports_left_and_preserves_previous_line(self):
+        self.window.text.insert("1.0", "Title\nBody")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        self.window.text.mark_set("insert", "2.0")
+
+        self.window.updateToolbarStyleFromSelection()
+        self.assertFalse(self.window.center_menu_var.get())
+
+        self.window.toggleCenterAlignmentForSelection()
+
+        self.assertEqual("center", self.window.getTextStyleAt("1.0")["alignment"])
+        self.assertEqual("center", self.window.getTextStyleAt("2.0")["alignment"])
+        self.window.refreshCenteredTextLayout()
+        self.assertEqual("Title", self.window.text.get("1.0", "1.end").strip())
+        self.assertEqual("Body", self.window.text.get("2.0", "2.end").strip())
+
+    def test_unchecking_center_menu_on_next_line_does_not_toggle_adjacent_lines(self):
+        self.window.text.insert("1.0", "Title\nBody")
+        self.window.text.tag_add("sel", "1.0", "1.5")
+        self.window.toggleCenterAlignmentForSelection()
+        self.window.text.winfo_width = lambda: 500
+        self.window.refreshCenteredTextLayout()
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        self.window.text.mark_set("insert", "2.0")
+        self.window.center_menu_var.set(False)
+
+        self.window.applyCenterAlignmentFromMenu()
+
+        self.assertEqual("center", self.window.getTextStyleAt("1.0")["alignment"])
+        self.assertEqual("left", self.window.getTextStyleAt("2.0")["alignment"])
+        self.window.refreshCenteredTextLayout()
+        self.assertEqual("Title", self.window.text.get("1.0", "1.end").strip())
+        self.assertEqual("Body", self.window.text.get("2.0", "2.end").strip())
+
     def test_display_nested_rtf_structure_imports_centered_text(self):
         rtf_text = (
             r"{\rtf1\ansi\pard "

@@ -297,7 +297,7 @@ class RTFWindow:
             label='Centered Text',
             accelerator='Ctrl+E',
             variable=self.center_menu_var,
-            command=self.toggleCenterAlignmentForSelection,
+            command=self.applyCenterAlignmentFromMenu,
         )
         menu_bar.add_cascade(label='Format', menu=format_menu)
 
@@ -591,6 +591,9 @@ class RTFWindow:
             return self.text.index('sel.first')
 
         index = self.text.index('insert')
+        if self.text.compare(index, '==', f'{index} linestart'):
+            return self.nextNonPaddingIndex(index)
+
         if self.text.compare(index, '>', '1.0'):
             previous_index = self.text.index(f'{index}-1c')
             if self.indexHasAlignmentPadding(previous_index):
@@ -942,31 +945,48 @@ class RTFWindow:
     def toggleItalicForSelection(self):
         return self.toggleStylePropertyForSelection("italic")
 
-    def toggleCenterAlignmentForSelection(self):
+    def applyCenterAlignmentFromMenu(self):
+        alignment = "center" if self.center_menu_var.get() else "left"
+        return self.toggleCenterAlignmentForSelection(alignment)
+
+    def toggleCenterAlignmentForSelection(self, alignment=None):
+        requested_alignment = (
+            None
+            if alignment is None
+            else self.normalizeAlignment(alignment)
+        )
         selected_range = self.selectedTextRange(show_error=False)
         if selected_range is None:
-            self.removeCenteredTextPadding()
             current = self.text.index('insert')
+            target_line_number = int(self.text.index(f'{current} linestart').split('.')[0])
+            self.removeCenteredTextPadding()
+            last_line = int(self.text.index('end-1c').split('.')[0])
+            target_line_number = min(target_line_number, last_line)
+            current = self.text.index(f'{target_line_number}.0')
             line_start = self.text.index(f'{current} linestart')
             line_end = self.text.index(f'{current} lineend')
             if self.text.compare(line_start, '==', line_end):
-                new_alignment = (
-                    "left"
-                    if self.typing_style.get("alignment") == "center"
-                    else "center"
-                )
+                new_alignment = requested_alignment
+                if new_alignment is None:
+                    new_alignment = (
+                        "left"
+                        if self.typing_style.get("alignment") == "center"
+                        else "center"
+                    )
                 return self.setTypingStyleProperty("alignment", new_alignment)
 
-            new_alignment = (
-                "left"
-                if self.selectionAllHasStyleProperty(
-                    line_start,
-                    line_end,
-                    "alignment",
-                    "center",
+            new_alignment = requested_alignment
+            if new_alignment is None:
+                new_alignment = (
+                    "left"
+                    if self.selectionAllHasStyleProperty(
+                        line_start,
+                        line_end,
+                        "alignment",
+                        "center",
+                    )
+                    else "center"
                 )
-                else "center"
-            )
             result = self.applyStylePropertyToRange(
                 line_start,
                 line_end,
@@ -984,11 +1004,13 @@ class RTFWindow:
 
         start, finish = selected_range
         line_ranges = self.selectionLineRanges(start, finish)
-        new_alignment = (
-            "left"
-            if self.lineRangesAllHaveStyleProperty(line_ranges, "alignment", "center")
-            else "center"
-        )
+        new_alignment = requested_alignment
+        if new_alignment is None:
+            new_alignment = (
+                "left"
+                if self.lineRangesAllHaveStyleProperty(line_ranges, "alignment", "center")
+                else "center"
+            )
         result = 'break'
         for line_start, line_end in line_ranges:
             if self.text.compare(line_start, '<', line_end):
