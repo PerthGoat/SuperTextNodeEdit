@@ -141,6 +141,24 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(new_file.is_file())
         self.assertEqual(self.window.RTF_HEADER + "}", new_file.read_text())
 
+    def test_node_context_menu_selects_right_clicked_node(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        beta = self.window.find_self("beta")
+        event = SimpleNamespace(x=10, y=20, x_root=110, y_root=220)
+        context_menu = mock.Mock()
+
+        with mock.patch.object(self.window.tree, "identify", return_value=beta):
+            self.window.node_context_menu = context_menu
+            result = self.window.showNodeContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertEqual(beta, self.window.selected_node)
+        self.assertEqual((beta,), self.window.tree.selection())
+        context_menu.tk_popup.assert_called_once_with(110, 220)
+        context_menu.grab_release.assert_called_once_with()
+
     def test_rename_node_refreshes_tree_and_reselects_renamed_node(self):
         self.write_node("newNode33", "Node text")
         self.window.populateNodeTree()

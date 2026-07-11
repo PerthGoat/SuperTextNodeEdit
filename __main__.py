@@ -176,6 +176,13 @@ class RTFWindow:
         self.tree.pack(anchor='w', fill='both', expand=True) # treeview is anchored to the west
         self.tree.heading('#0', text='Nodes', anchor='w') # set the default heading name and width
         self.tree.column('#0', anchor='w')
+
+        self.node_context_menu = tk.Menu(self.window, tearoff=False)
+        self.node_context_menu.add_command(label='Rename', command=self.renameNode)
+        self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
+        self.node_context_menu.add_separator()
+        self.node_context_menu.add_command(label='Delete', command=self.deleteNode)
+        self.tree.bind('<Button-3>', self.showNodeContextMenu)
         
         # bind a callback for horizontal scroll adjustment
         self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.treeOpenClose(e), "treeOpenClose")))
@@ -241,6 +248,23 @@ class RTFWindow:
         
         if self.start_mainloop:
             self.window.mainloop()
+
+    def showNodeContextMenu(self, event):
+        """Select the node under the pointer and show its context menu."""
+        node = self.tree.identify('item', event.x, event.y)
+        if not node:
+            return None
+
+        self.tree.selection_set(node)
+        self.tree.focus(item=node)
+        self.selected_node = node
+
+        try:
+            self.node_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.node_context_menu.grab_release()
+
+        return 'break'
 
     def createMenuBar(self):
         menu_bar = tk.Menu(self.window)
