@@ -28,6 +28,7 @@ class Clipboard:
         self.close_clipboard = platform_specific[2]
         self.get_clipboard = platform_specific[3]
         self.get_file_paths = self.__wingetfilepaths if os.name == 'nt' else lambda: []
+        self.register_format = self.__winregisterformat if os.name == 'nt' else lambda _name: None
         self.clear_clipboard = platform_specific[4]
         # do imports
         platform_specific[5]()
@@ -43,6 +44,16 @@ class Clipboard:
     def __winclearclipboard(self):
         EmptyClipboard = ctypes.windll.user32.EmptyClipboard
         EmptyClipboard()
+
+    def __winregisterformat(self, name):
+        """Return the process-local ID for a named clipboard format."""
+        RegisterClipboardFormatW = ctypes.windll.user32.RegisterClipboardFormatW
+        RegisterClipboardFormatW.argtypes = [ctypes.wintypes.LPCWSTR]
+        RegisterClipboardFormatW.restype = ctypes.wintypes.UINT
+        format_id = RegisterClipboardFormatW(name)
+        if not format_id:
+            raise ctypes.WinError()
+        return format_id
 
     # takes data in bytes
     def __winclipboard(self, data, data_type):

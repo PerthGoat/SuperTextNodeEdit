@@ -1,6 +1,7 @@
 import configparser
 import importlib.util
 import os
+import struct
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -43,6 +44,11 @@ class FakeClipboard:
 
     def get_file_paths(self):
         return []
+
+    def register_format(self, name):
+        self.registered_formats = getattr(self, 'registered_formats', [])
+        self.registered_formats.append(name)
+        return {'Preferred DropEffect': 0xC123, 'FileNameW': 0xC124}[name]
 
     def set_clipboard(self, data, data_type):
         self.last_set = (data, data_type)
@@ -830,6 +836,21 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         attachment = next(iter(self.window.embedded_files.values()))
         self.assertEqual('payload.bin', attachment['filename'])
         self.assertEqual(b'original bytes', attachment['data'])
+
+    def test_copy_attachment_sets_file_drop_and_preferred_copy_effect(self):
+        name = self.window.createEmbeddedFile('1.0', 'payload.bin', b'payload')
+
+        self.assertEqual('break', self.window.copyEmbeddedFile(name))
+
+        self.assertEqual(
+            ['Preferred DropEffect', 'FileNameW'],
+            self.window.clip.registered_formats,
+        )
+        self.assertEqual(self.window.clip.FILES, self.window.clip.set_calls[0][1])
+        self.assertEqual((struct.pack('<I', 1), 0xC123), self.window.clip.set_calls[1])
+        filename_payload, filename_format = self.window.clip.set_calls[2]
+        self.assertEqual(0xC124, filename_format)
+        self.assertTrue(filename_payload.endswith('payload.bin'.encode('utf-16-le') + b'\0'))
 
     def test_text_motion_restores_text_cursor_without_reconfiguring_repeatedly(self):
         self.window.current_text_cursor = "sb_h_double_arrow"

@@ -1627,6 +1627,15 @@ class RTFWindow:
         try:
             self.clip.clear_clipboard()
             self.clip.set_clipboard(self.fileDropClipboardBytes([path]), self.clip.FILES)
+            preferred_drop_effect = self.clip.register_format('Preferred DropEffect')
+            if preferred_drop_effect is not None:
+                # DROPEFFECT_COPY: the temporary source must never be moved/deleted.
+                self.clip.set_clipboard(struct.pack('<I', 1), preferred_drop_effect)
+            filename_w = self.clip.register_format('FileNameW')
+            if filename_w is not None:
+                # The clipboard helper appends one byte; include the other half
+                # of the UTF-16 NUL terminator in this payload.
+                self.clip.set_clipboard(path.encode('utf-16-le') + b'\0', filename_w)
         finally:
             self.clip.close_clipboard()
         return 'break'
