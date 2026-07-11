@@ -41,6 +41,10 @@ class ScrollableText(tk.Frame):
         self.image_cget = text.image_cget
         self.image_configure = text.image_configure
         self.image_names = text.image_names
+        self.edit_reset = text.edit_reset
+        self.edit_redo = text.edit_redo
+        self.edit_separator = text.edit_separator
+        self.edit_undo = text.edit_undo
         self.index = text.index
         self.compare = text.compare
         self.mark_gravity = text.mark_gravity

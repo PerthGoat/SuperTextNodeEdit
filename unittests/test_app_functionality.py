@@ -131,6 +131,26 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
         self.assertEqual("Hello\nWorld\n", self.window.text.get("1.0", "end"))
 
+    def test_undo_and_redo_document_edits(self):
+        self.window.text.edit_reset()
+        self.window.text.insert("1.0", "new text")
+
+        self.assertEqual("break", self.window.undoDocument())
+        self.assertEqual("", self.window.text.get("1.0", "end-1c"))
+
+        self.assertEqual("break", self.window.redoDocument())
+        self.assertEqual("new text", self.window.text.get("1.0", "end-1c"))
+
+    def test_loading_node_resets_undo_history(self):
+        self.window.text.insert("1.0", "previous document")
+        self.write_node("alpha", "Loaded text")
+
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        self.window.undoDocument()
+
+        self.assertEqual("Loaded text", self.window.text.get("1.0", "end-1c"))
+
     def test_create_new_node_writes_folder_and_rtf_file(self):
         self.window.selected_node = ()
 

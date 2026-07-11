@@ -211,10 +211,20 @@ class RTFWindow:
         #textFrame.grid(row=0, column=1, sticky='nsew')
         panedWin.add(textFrame)
         
-        self.text = ScrollableText(textFrame, font=self.tkinter_font, cursor=self.TEXT_CURSOR)
+        self.text = ScrollableText(
+            textFrame,
+            font=self.tkinter_font,
+            cursor=self.TEXT_CURSOR,
+            undo=True,
+            autoseparators=True,
+            maxundo=-1,
+        )
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
 
         self.text_context_menu = tk.Menu(self.window, tearoff=False)
+        self.text_context_menu.add_command(label='Undo', command=self.undoDocument)
+        self.text_context_menu.add_command(label='Redo', command=self.redoDocument)
+        self.text_context_menu.add_separator()
         self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
         self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
         self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
@@ -222,6 +232,10 @@ class RTFWindow:
         
         self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
+        self.text.bind('<Control-z>', self.undoDocument)
+        self.text.bind('<Control-Z>', self.undoDocument)
+        self.text.bind('<Control-y>', self.redoDocument)
+        self.text.bind('<Control-Y>', self.redoDocument)
         self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
         self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
         self.text.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
@@ -317,6 +331,11 @@ class RTFWindow:
         file_menu.add_command(label='Exit', command=self.window.destroy)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
+        edit_menu = tk.Menu(menu_bar, tearoff=False)
+        edit_menu.add_command(label='Undo', accelerator='Ctrl+Z', command=self.undoDocument)
+        edit_menu.add_command(label='Redo', accelerator='Ctrl+Y', command=self.redoDocument)
+        menu_bar.add_cascade(label='Edit', menu=edit_menu)
+
         node_menu = tk.Menu(menu_bar, tearoff=False)
         node_menu.add_command(label='Update', command=self.populateNodeTree)
         node_menu.add_separator()
@@ -377,6 +396,28 @@ class RTFWindow:
 
     def saveRTFShortcut(self, event=None):
         self.saveRTF()
+        return 'break'
+
+    def undoDocument(self, event=None):
+        """Undo the most recent edit in the current document."""
+        try:
+            self.text.edit_undo()
+        except tk.TclError:
+            pass
+        self.scheduleToolbarStyleUpdate()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        return 'break'
+
+    def redoDocument(self, event=None):
+        """Redo the most recently undone edit in the current document."""
+        try:
+            self.text.edit_redo()
+        except tk.TclError:
+            pass
+        self.scheduleToolbarStyleUpdate()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
         return 'break'
 
     def showFontFamilyDialog(self):
@@ -1868,6 +1909,7 @@ class RTFWindow:
 
     def tryReadShowRTF(self, event): # event is not used
         self.text.delete('1.0', 'end') # delete all text in textbox currently
+        self.text.edit_reset()
         
         selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
         
@@ -1915,6 +1957,9 @@ class RTFWindow:
         self.image_resize_state = None
 
         self.displayNestedRTFStructure(rt)
+        # Loading a node establishes a new document baseline. Its parsed inserts
+        # must not be exposed as user edits, nor may undo cross node boundaries.
+        self.text.edit_reset()
 
     def isSupportedRTF(self, rt):
         if len(rt) < 3:
@@ -2542,6 +2587,7 @@ class RTFWindow:
             self.tree.selection_remove(self.selected_node)
             self.selected_node = ()
             self.text.delete('1.0', 'end')
+            self.text.edit_reset()
             self.openFile = ''
             return None
 
