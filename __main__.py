@@ -17,6 +17,8 @@ import io
 import os
 import glob
 import shutil
+import struct
+import tempfile
 
 import configparser
 import re
@@ -85,6 +87,8 @@ class RTFWindow:
         self.openFile = '' # holds the currently open file for easy saving etc.
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
         self.embedded_images = {}
+        self.embedded_files = {}
+        self.attachment_tempdir = tempfile.TemporaryDirectory(prefix='supertext-attachments-')
         self.image_resize_state = None
         self.current_text_cursor = self.TEXT_CURSOR
 
@@ -128,6 +132,7 @@ class RTFWindow:
         def destroyWindow():
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
+            self.attachment_tempdir.cleanup()
             original_destroy()
         self.window.destroy = destroyWindow
         self.window.bind('<Destroy>', self.cancelScheduledCenteredTextLayoutRefresh, add='+')
@@ -1452,6 +1457,14 @@ class RTFWindow:
                 return token[1]
         return None
 
+    def hasDirectRTFCommand(self, structure, command):
+        """Check a group itself, without matching commands in child groups."""
+        return any(
+            isinstance(token, tuple)
+            and token == ('RTFCMD', command)
+            for token in structure
+        )
+
     def findRTFGroup(self, structure, command):
         for token in structure:
             if isinstance(token, list):
@@ -1560,6 +1573,73 @@ class RTFWindow:
             "photo": tk_image,
         }
         return embedded_name
+
+    def createEmbeddedFile(self, index, filename, data):
+        """Insert a self-contained attachment widget into the text document."""
+        filename = os.path.basename(filename) or 'attachment.bin'
+        label = tk.Label(
+            self.text.widget,
+            text=f'\U0001f4ce {filename}',
+            cursor='hand2',
+            relief='groove',
+            borderwidth=1,
+            padx=5,
+            pady=2,
+        )
+        self.text.window_create(index, window=label)
+        embedded_name = str(label)
+        self.embedded_files[embedded_name] = {
+            'filename': filename,
+            'data': bytes(data),
+            'widget': label,
+        }
+        label.bind('<Double-1>', lambda _event, name=embedded_name: self.openEmbeddedFile(name))
+        label.bind('<Button-3>', lambda event, name=embedded_name: self.showEmbeddedFileMenu(event, name))
+        return embedded_name
+
+    def showEmbeddedFileMenu(self, event, embedded_name):
+        menu = tk.Menu(self.window, tearoff=False)
+        menu.add_command(label='Copy attachment', command=lambda: self.copyEmbeddedFile(embedded_name))
+        menu.add_command(label='Open attachment', command=lambda: self.openEmbeddedFile(embedded_name))
+        menu.tk_popup(event.x_root, event.y_root)
+        return 'break'
+
+    def materializeEmbeddedFile(self, embedded_name):
+        attachment = self.embedded_files.get(embedded_name)
+        if attachment is None:
+            return None
+        folder = tempfile.mkdtemp(dir=self.attachment_tempdir.name)
+        path = os.path.join(folder, attachment['filename'])
+        with open(path, 'wb') as output:
+            output.write(attachment['data'])
+        return path
+
+    def fileDropClipboardBytes(self, paths):
+        # DROPFILES followed by a double-NUL-terminated UTF-16 path list.
+        names = ('\0'.join(os.path.abspath(path) for path in paths) + '\0\0').encode('utf-16-le')
+        return struct.pack('<IiiII', 20, 0, 0, 0, 1) + names
+
+    def copyEmbeddedFile(self, embedded_name):
+        path = self.materializeEmbeddedFile(embedded_name)
+        if path is None:
+            return None
+        self.clip.open_clipboard()
+        try:
+            self.clip.clear_clipboard()
+            self.clip.set_clipboard(self.fileDropClipboardBytes([path]), self.clip.FILES)
+        finally:
+            self.clip.close_clipboard()
+        return 'break'
+
+    def openEmbeddedFile(self, embedded_name):
+        path = self.materializeEmbeddedFile(embedded_name)
+        if path is None:
+            return None
+        try:
+            os.startfile(path)
+        except (AttributeError, OSError) as exc:
+            messagebox.showerror('Could not open attachment', str(exc))
+        return 'break'
 
     def findTkImageByName(self, image_name):
         for tk_image in self.tkinter_imagelist:
@@ -1882,6 +1962,9 @@ class RTFWindow:
         if first_command == 'pict':
             return self.displayRTFImageGroup(structure, insertion_index)
 
+        if self.hasDirectRTFCommand(structure, 'supertextfile'):
+            return self.displayRTFFileGroup(structure, insertion_index)
+
         current_style = style.copy()
         for token in structure:
             if isinstance(token, list):
@@ -1906,6 +1989,24 @@ class RTFWindow:
                 print(token)
 
         return None
+
+    def customRTFGroupValue(self, structure, command):
+        group = self.findRTFGroup(structure, command)
+        if group is None:
+            return ''
+        return ''.join(
+            value for kind, value in self.flattenRTFTokens(group)
+            if kind in {'TEXT', 'CMDPARAM'} and value.strip()
+        )
+
+    def displayRTFFileGroup(self, structure, insertion_index='end'):
+        try:
+            filename = bytes.fromhex(self.customRTFGroupValue(structure, 'supertextfilename')).decode('utf-8')
+            data = bytes.fromhex(self.customRTFGroupValue(structure, 'supertextdata'))
+        except (ValueError, UnicodeDecodeError) as exc:
+            print(f'Could not decode embedded file: {exc}')
+            return None
+        return self.createEmbeddedFile(insertion_index, filename, data)
 
     def tryReadShowRTF(self, event): # event is not used
         self.text.delete('1.0', 'end') # delete all text in textbox currently
@@ -1954,6 +2055,7 @@ class RTFWindow:
         # clear existing images from image list
         self.tkinter_imagelist = []
         self.embedded_images = {}
+        self.embedded_files = {}
         self.image_resize_state = None
 
         self.displayNestedRTFStructure(rt)
@@ -2092,6 +2194,15 @@ class RTFWindow:
                 imgx, imgy = shifted_img.size
                 shifted_img.save(ibytes, 'PNG')
                 body += r'{\pict\pngblip' + rf'\picw{int(imgx*self.rtf_img_factor)}\pich{int(imgy*self.rtf_img_factor)} ' + ibytes.getvalue().hex() + '}'
+                continue
+
+            if token_type == 'window' and token_value in self.embedded_files:
+                attachment = self.embedded_files[token_value]
+                filename_hex = attachment['filename'].encode('utf-8').hex()
+                data_hex = attachment['data'].hex()
+                body += (r'{\*\supertextfile '
+                         r'{\supertextfilename ' + filename_hex + '}'
+                         r'{\supertextdata ' + data_hex + '}}')
                 continue
 
             if token_type != 'text':
@@ -2415,23 +2526,42 @@ class RTFWindow:
     
     def pasteFromClipboard(self, event=None):
         self.clip.open_clipboard()
-
-        clip_rtf_data = self.clip.get_clipboard()
-
-        self.clip.close_clipboard()
+        try:
+            clip_rtf_data = self.clip.get_clipboard()
+            get_file_paths = getattr(self.clip, 'get_file_paths', lambda: [])
+            clipboard_files = get_file_paths() if clip_rtf_data is None else []
+        finally:
+            self.clip.close_clipboard()
         
         if clip_rtf_data == None: # fallback on grabbing very normal images from clipboard
+            if clipboard_files:
+                for path in clipboard_files:
+                    try:
+                        with Image.open(path) as opened_image:
+                            self.createEmbeddedImage('insert', opened_image)
+                    except (OSError, ValueError):
+                        try:
+                            with open(path, 'rb') as source:
+                                self.createEmbeddedFile('insert', os.path.basename(path), source.read())
+                        except OSError as exc:
+                            messagebox.showerror('Could not paste attachment', str(exc))
+                return 'break'
+
             clipimg = ImageGrab.grabclipboard()
             #print(clipimg)
             if clipimg == None: # if no image on clipboard, ignore
                 return None
             
             if type(clipimg) == list:
-                for img in clipimg:
-                    with Image.open(img) as opened_image:
-                        self.createEmbeddedImage('insert', opened_image)
+                for path in clipimg:
+                    try:
+                        with Image.open(path) as opened_image:
+                            self.createEmbeddedImage('insert', opened_image)
+                    except (OSError, ValueError):
+                        with open(path, 'rb') as source:
+                            self.createEmbeddedFile('insert', os.path.basename(path), source.read())
                 
-                return None
+                return 'break'
             
             self.createEmbeddedImage('insert', clipimg)
         else: # rtf data on the clipboard

@@ -24,6 +24,7 @@ class FakeClipboard:
     UNITEXT = 13
     BITMAP = 0x8
     RTF_NO_OBJ = 49514
+    FILES = 15
 
     def __init__(self):
         self.set_calls = []
@@ -39,6 +40,9 @@ class FakeClipboard:
 
     def get_clipboard(self):
         return None
+
+    def get_file_paths(self):
+        return []
 
     def set_clipboard(self, data, data_type):
         self.last_set = (data, data_type)
@@ -784,6 +788,48 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(print_mock.called)
         printed = " ".join(str(arg) for call in print_mock.call_args_list for arg in call.args)
         self.assertNotIn("non-hexadecimal", printed)
+
+    def test_embedded_file_round_trips_through_rtf(self):
+        name = self.window.createEmbeddedFile('1.0', 'payload.bin', b'\x00\xffdata')
+
+        rtf = self.window.convertToRTF('1.0', 'end')
+        self.assertIn(r'\supertextfile', rtf)
+        self.window.text.delete('1.0', 'end')
+        self.window.embedded_files = {}
+        self.window.displayNestedRTFStructure(app.RTFParser(rtf).parseme())
+
+        self.assertEqual(1, len(self.window.embedded_files))
+        attachment = next(iter(self.window.embedded_files.values()))
+        self.assertEqual('payload.bin', attachment['filename'])
+        self.assertEqual(b'\x00\xffdata', attachment['data'])
+
+    def test_text_around_embedded_file_round_trips_through_rtf(self):
+        self.window.text.insert('1.0', 'Before ')
+        self.window.createEmbeddedFile('end-1c', 'payload.bin', b'payload')
+        self.window.text.insert('end-1c', ' after')
+
+        rtf = self.window.convertToRTF('1.0', 'end')
+        self.window.text.delete('1.0', 'end')
+        self.window.embedded_files = {}
+        self.window.displayNestedRTFStructure(app.RTFParser(rtf).parseme())
+
+        self.assertEqual('Before  after\n', self.window.text.get('1.0', 'end'))
+        self.assertEqual(1, len(self.window.embedded_files))
+        attachment = next(iter(self.window.embedded_files.values()))
+        self.assertEqual('payload.bin', attachment['filename'])
+        self.assertEqual(b'payload', attachment['data'])
+
+    def test_paste_binary_file_embeds_a_snapshot(self):
+        source = self.root / 'payload.bin'
+        source.write_bytes(b'original bytes')
+        self.window.clip.get_file_paths = lambda: [str(source)]
+
+        self.assertEqual('break', self.window.pasteFromClipboard())
+        source.write_bytes(b'changed')
+
+        attachment = next(iter(self.window.embedded_files.values()))
+        self.assertEqual('payload.bin', attachment['filename'])
+        self.assertEqual(b'original bytes', attachment['data'])
 
     def test_text_motion_restores_text_cursor_without_reconfiguring_repeatedly(self):
         self.window.current_text_cursor = "sb_h_double_arrow"

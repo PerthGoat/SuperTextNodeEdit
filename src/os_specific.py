@@ -11,6 +11,7 @@ class Clipboard:
     TEXT = 1 # normal text
     UNITEXT = 13 # windows clipboard likes this
     BITMAP = 0x8
+    FILES = 15 # CF_HDROP
     RTF=0x99
     RTF_NO_OBJ=49514
     def __init__(self):
@@ -26,6 +27,7 @@ class Clipboard:
         self.open_clipboard = platform_specific[1]
         self.close_clipboard = platform_specific[2]
         self.get_clipboard = platform_specific[3]
+        self.get_file_paths = self.__wingetfilepaths if os.name == 'nt' else lambda: []
         self.clear_clipboard = platform_specific[4]
         # do imports
         platform_specific[5]()
@@ -86,6 +88,8 @@ class Clipboard:
             d_len = len(payload)
             if data_type_id == self.UNITEXT:
                 d_len += 2
+            elif data_type_id == self.FILES:
+                pass
             else:
                 d_len += 1
             data_buffer = ctypes.create_string_buffer(payload, d_len)
@@ -174,6 +178,28 @@ class Clipboard:
         GlobalUnlock(data_lock)
 
         return val
+
+    def __wingetfilepaths(self):
+        """Return files copied by Explorer without reading their contents."""
+        GetClipboardData = ctypes.windll.user32.GetClipboardData
+        GetClipboardData.argtypes = [ctypes.wintypes.UINT]
+        GetClipboardData.restype = ctypes.wintypes.HANDLE
+        DragQueryFileW = ctypes.windll.shell32.DragQueryFileW
+        DragQueryFileW.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.UINT,
+                                   ctypes.wintypes.LPWSTR, ctypes.wintypes.UINT]
+        DragQueryFileW.restype = ctypes.wintypes.UINT
+
+        drop_handle = GetClipboardData(self.FILES)
+        if not drop_handle:
+            return []
+        count = DragQueryFileW(drop_handle, 0xFFFFFFFF, None, 0)
+        paths = []
+        for index in range(count):
+            length = DragQueryFileW(drop_handle, index, None, 0)
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            DragQueryFileW(drop_handle, index, buffer, length + 1)
+            paths.append(buffer.value)
+        return paths
 
 
     def __linuxclipboard(self):
