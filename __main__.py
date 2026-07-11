@@ -213,6 +213,12 @@ class RTFWindow:
         
         self.text = ScrollableText(textFrame, font=self.tkinter_font, cursor=self.TEXT_CURSOR)
         self.text.pack(fill='both', expand='True') # text fills entire remaining space
+
+        self.text_context_menu = tk.Menu(self.window, tearoff=False)
+        self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
+        self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
+        self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
+        self.text.bind('<Button-3>', self.showTextContextMenu)
         
         self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
         self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
@@ -232,7 +238,7 @@ class RTFWindow:
         self.text.bind('<B1-Motion>', self.dragImageResize, add='+')
         self.text.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
         
-        self.text.bind('<Control-x>', lambda e: [self.copyFromClipboard(e), self.text.delete(self.text.index('sel.first'), self.text.index('sel.last'))][0]) # bound to enable clipboard rich cutting
+        self.text.bind('<Control-x>', self.cutTextSelection) # bound to enable clipboard rich cutting
         
         # end textarea
         
@@ -272,6 +278,33 @@ class RTFWindow:
             self.node_context_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.node_context_menu.grab_release()
+
+        return 'break'
+
+    def showTextContextMenu(self, event):
+        """Show editing actions for the document at the pointer position."""
+        pointer_index = self.text.index(f'@{event.x},{event.y}')
+        selection = self.text.tag_ranges('sel')
+        pointer_is_selected = (
+            selection
+            and self.text.compare(pointer_index, '>=', 'sel.first')
+            and self.text.compare(pointer_index, '<', 'sel.last')
+        )
+
+        if not pointer_is_selected:
+            self.text.tag_remove('sel', '1.0', 'end')
+            self.text.mark_set('insert', pointer_index)
+
+        has_selection = bool(self.text.tag_ranges('sel'))
+        selection_state = 'normal' if has_selection else 'disabled'
+        self.text_context_menu.entryconfigure('Cut', state=selection_state)
+        self.text_context_menu.entryconfigure('Copy', state=selection_state)
+        self.text.focus_set()
+
+        try:
+            self.text_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.text_context_menu.grab_release()
 
         return 'break'
 
@@ -2335,7 +2368,7 @@ class RTFWindow:
         entry.focus_set()
         return 'break'
     
-    def pasteFromClipboard(self, event):
+    def pasteFromClipboard(self, event=None):
         self.clip.open_clipboard()
 
         clip_rtf_data = self.clip.get_clipboard()
@@ -2369,7 +2402,7 @@ class RTFWindow:
             #print(parsed_clip)
         return 'break'
 
-    def copyFromClipboard(self, event):
+    def copyFromClipboard(self, event=None):
         if not self.text.tag_ranges('sel'):
             return None
         
@@ -2409,6 +2442,20 @@ class RTFWindow:
         #self.window.clipboard_clear()
         #clipboard_paste(ibytes.getvalue())
         
+        return 'break'
+
+    def cutTextSelection(self, event=None):
+        """Copy the selected rich content and remove it from the document."""
+        if not self.text.tag_ranges('sel'):
+            return None
+
+        sel_start = self.text.index('sel.first')
+        sel_end = self.text.index('sel.last')
+        self.copyFromClipboard(event)
+        self.text.delete(sel_start, sel_end)
+        self.scheduleToolbarStyleUpdate()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
         return 'break'
     
     # find the node with the path specified

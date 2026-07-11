@@ -159,6 +159,34 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         context_menu.tk_popup.assert_called_once_with(110, 220)
         context_menu.grab_release.assert_called_once_with()
 
+    def test_text_context_menu_preserves_selection_clicked_inside_it(self):
+        self.window.text.insert("1.0", "selected text")
+        self.window.text.tag_add("sel", "1.0", "1.8")
+        context_menu = mock.Mock()
+        self.window.text_context_menu = context_menu
+        event = SimpleNamespace(x=1, y=1, x_root=110, y_root=220)
+
+        with mock.patch.object(self.window.text, "index", return_value="1.3"):
+            result = self.window.showTextContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertTrue(self.window.text.tag_ranges("sel"))
+        context_menu.entryconfigure.assert_any_call("Cut", state="normal")
+        context_menu.entryconfigure.assert_any_call("Copy", state="normal")
+        context_menu.tk_popup.assert_called_once_with(110, 220)
+        context_menu.grab_release.assert_called_once_with()
+
+    def test_cut_text_selection_uses_rich_copy_then_deletes_selection(self):
+        self.window.text.insert("1.0", "cut me")
+        self.window.text.tag_add("sel", "1.0", "1.3")
+
+        with mock.patch.object(self.window, "copyFromClipboard", return_value="break") as copy:
+            result = self.window.cutTextSelection()
+
+        self.assertEqual("break", result)
+        copy.assert_called_once_with(None)
+        self.assertEqual(" me", self.window.text.get("1.0", "end-1c"))
+
     def test_rename_node_refreshes_tree_and_reselects_renamed_node(self):
         self.write_node("newNode33", "Node text")
         self.window.populateNodeTree()
