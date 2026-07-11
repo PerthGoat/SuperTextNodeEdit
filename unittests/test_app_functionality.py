@@ -340,6 +340,10 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             ("Plain text".encode("ansi"), self.window.clip.TEXT),
             self.window.clip.set_calls,
         )
+        self.assertTrue(any(
+            data_type == self.window.clip.RTF_NO_OBJ
+            for _, data_type in self.window.clip.set_calls
+        ))
 
     def test_rich_text_paste_inserts_at_text_cursor(self):
         self.window.text.insert("1.0", "Hello world")
@@ -387,6 +391,43 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(self.window.clip.UNITEXT, copied_types)
         self.assertIn(self.window.clip.TEXT, copied_types)
         self.assertIn(self.window.clip.RTF_NO_OBJ, copied_types)
+
+    def test_copy_color_when_selection_matches_exact_tag_boundaries(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Red plain")
+        self.window.text.tag_add("sel", "1.0", "1.3")
+        self.window.applyStylePropertyToSelection("color", "#ff0000")
+        self.window.text.tag_add("sel", "1.0", "1.3")
+
+        self.window.copyFromClipboard(None)
+
+        rtf_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.RTF_NO_OBJ
+        ).decode("utf-8")
+        self.assertIn(r"{\colortbl ;\red255\green0\blue0;}", rtf_payload)
+        self.assertIn(r"{\cf1 Red}", rtf_payload)
+
+    def test_copy_color_when_selection_starts_inside_formatted_word(self):
+        self.window.openFile = str(self.node_dir / "scratch.rtf")
+        self.window.text.insert("1.0", "Colored")
+        self.window.text.tag_add("sel", "1.0", "1.7")
+        self.window.applyStylePropertyToSelection("color", "#ff0000")
+        self.window.text.tag_remove("sel", "1.0", "end")
+        self.window.text.tag_add("sel", "1.2", "1.5")
+
+        self.window.copyFromClipboard(None)
+
+        rtf_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.RTF_NO_OBJ
+        ).decode("utf-8")
+        self.assertIn(r"{\colortbl ;\red255\green0\blue0;}", rtf_payload)
+        self.assertIn(r"{\cf1 lor}", rtf_payload)
+        self.assertLess(rtf_payload.index(r"{\fonttbl"), rtf_payload.index(r"\pard"))
+        self.assertLess(rtf_payload.index(r"{\colortbl"), rtf_payload.index(r"\pard"))
 
     def test_convert_to_rtf_exports_selected_text_formatting(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")

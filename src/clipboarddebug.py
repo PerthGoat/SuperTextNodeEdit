@@ -53,7 +53,7 @@ while True:
 
 pprint(format_mapping_dict)
 
-exit(0)
+#exit(0)
 
 # get clipboard data
 
@@ -61,16 +61,22 @@ GetClipboardData = ctypes.windll.user32.GetClipboardData
 GetClipboardData.argtypes = [ctypes.wintypes.UINT]
 GetClipboardData.restype = ctypes.wintypes.HANDLE
 
-goal_item = format_mapping_dict['Rich Text Format Without Objects']
+for item in ('', 'Rich Text Format', 'Rich Text Format Without Objects'):
+    goal_item = format_mapping_dict[item]
 
-print(goal_item)
+    print(item, goal_item)
 
-res = GetClipboardData(goal_item)
+    res = GetClipboardData(goal_item)
 
-data_lock = GlobalLock(res)
-text = ctypes.c_char_p(data_lock)
-val = text.value.decode('ascii')
-GlobalUnlock(data_lock)
+    data_lock = GlobalLock(res)
+    try:
+        value = ctypes.string_at(data_lock)
+    finally:
+        GlobalUnlock(res)
+
+    print(value)
+
+exit(0)
 
 # end
 

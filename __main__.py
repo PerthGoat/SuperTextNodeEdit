@@ -1929,7 +1929,7 @@ class RTFWindow:
             for font_family, font_id in fonts_by_id
         )
 
-        header = r'{\rtf1\ansi\pard ' + r'{\fonttbl' + font_table + '}'
+        header = r'{\rtf1\ansi\deff0' + r'{\fonttbl' + font_table + '}'
 
         if color_ids:
             colors_by_id = sorted(color_ids.items(), key=lambda item: item[1])
@@ -1941,7 +1941,7 @@ class RTFWindow:
                 color_table += rf'\red{red}\green{green}\blue{blue};'
             header += r'{\colortbl ' + color_table + '}'
 
-        header += rf'\f0\fs{self.DEFAULT_FONT_SIZE * 2} '
+        header += rf'\pard\f0\fs{self.DEFAULT_FONT_SIZE * 2} '
         return header
 
     def styleRTFCommandPrefix(self, style, font_ids, color_ids):
@@ -1978,11 +1978,11 @@ class RTFWindow:
                 style.update(self.style_tags[tag])
         return style
 
-    def convertDumpToRTFBody(self, textContents):
+    def convertDumpToRTFBody(self, textContents, initial_style_tags=None):
         body = ''
         font_ids = {self.DEFAULT_FONT_FAMILY: 0}
         color_ids = {}
-        active_style_tags = []
+        active_style_tags = list(initial_style_tags or [])
         active_padding_tags = []
         has_formatting = False
 
@@ -2034,9 +2034,12 @@ class RTFWindow:
         return body, font_ids, color_ids, has_formatting
 
     def rangeHasFormatting(self, start, finish):
+        if any(tag in self.style_tags for tag in self.text.tag_names(start)):
+            return True
+
         return any(
-            token_type in {'tagon', 'tagoff'} and token_value in self.style_tags
-            for token_type, token_value, _ in self.text.dump(start, finish)
+            self.text.tag_nextrange(tag, start, finish)
+            for tag in self.style_tags
         )
 
     def dumpTextWithoutAlignmentPadding(self, dumped_text):
@@ -2116,18 +2119,20 @@ class RTFWindow:
     # convert a text selection to RTF
     # start to finish of selection
     def convertToRTF(self, start, finish):
-        # if no files are open there is nothing to save
-        if self.openFile == '': 
-            tk.messagebox.showerror(title='No open files to save', message='No open files to save')
-            return None
-        
         # get the text contents including images
         # tkinter proves "dump" for this
         if finish == 'end':
             finish = 'end-1c'
+        initial_style_tags = [
+            tag for tag in self.text.tag_names(start)
+            if tag in self.style_tags
+        ]
         textContents = self.text.dump(start, finish)
 
-        body, font_ids, color_ids, has_formatting = self.convertDumpToRTFBody(textContents)
+        body, font_ids, color_ids, has_formatting = self.convertDumpToRTFBody(
+            textContents,
+            initial_style_tags,
+        )
 
         if has_formatting or color_ids or len(font_ids) > 1:
             data = self.buildRTFHeader(font_ids, color_ids) + body
@@ -2141,9 +2146,11 @@ class RTFWindow:
     
     # save an RTF file that is open
     def saveRTF(self):
-        data = self.convertToRTF('1.0', 'end')
-        if data is None:
+        if self.openFile == '':
+            tk.messagebox.showerror(title='No open files to save', message='No open files to save')
             return None
+
+        data = self.convertToRTF('1.0', 'end')
         with open(self.openFile, 'w', encoding='utf-8') as fi:
             fi.write(data)
         
@@ -2382,13 +2389,13 @@ class RTFWindow:
         self.clip.open_clipboard()
         # this is needed for unknown reasons, the docs say this should lose the handle
         self.clip.clear_clipboard()
-        selection_has_formatting = self.rangeHasFormatting(sel_start, sel_end)
 
         if len(text_in_selection) > 0:
             self.setClipboardPlainText(plain_text_in_selection)
-
-            if len(imgs_in_selection) > 0 or selection_has_formatting:
-                self.clip.set_clipboard(self.convertToRTF(sel_start, sel_end).encode('utf-8'), self.clip.RTF_NO_OBJ)
+            self.clip.set_clipboard(
+                self.convertToRTF(sel_start, sel_end).encode('utf-8'),
+                self.clip.RTF_NO_OBJ,
+            )
 
         if len(text_in_selection) == 0 and len(imgs_in_selection) > 0:
             for embedded_image in imgs_in_selection:

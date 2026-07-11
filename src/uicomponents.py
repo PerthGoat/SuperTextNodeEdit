@@ -48,6 +48,7 @@ class ScrollableText(tk.Frame):
         self.tag_cget = text.tag_cget
         self.tag_configure = text.tag_configure
         self.tag_names = text.tag_names
+        self.tag_nextrange = text.tag_nextrange
         self.tag_remove = text.tag_remove
         self.tag_ranges = text.tag_ranges
         self.update_idletasks = text.update_idletasks
