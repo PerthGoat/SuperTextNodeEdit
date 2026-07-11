@@ -41,7 +41,9 @@ class ScrollableText(tk.Frame):
         self.image_names = text.image_names
         self.index = text.index
         self.compare = text.compare
+        self.mark_gravity = text.mark_gravity
         self.mark_set = text.mark_set
+        self.mark_unset = text.mark_unset
         self.tag_add = text.tag_add
         self.tag_cget = text.tag_cget
         self.tag_configure = text.tag_configure

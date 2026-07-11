@@ -271,6 +271,16 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             self.window.clip.set_calls,
         )
 
+    def test_rich_text_paste_inserts_at_text_cursor(self):
+        self.window.text.insert("1.0", "Hello world")
+        self.window.text.mark_set("insert", "1.6")
+        self.window.clip.get_clipboard = lambda: r"{\rtf1\ansi pasted }"
+
+        result = self.window.pasteFromClipboard(None)
+
+        self.assertEqual("break", result)
+        self.assertEqual("Hello pasted world\n", self.window.text.get("1.0", "end"))
+
     def test_copy_table_expands_tabs_to_spaces_for_plain_text_clipboard(self):
         self.window.insertTable(3, 2, has_header=True)
         self.window.text.tag_add("sel", "1.0", "end-1c")

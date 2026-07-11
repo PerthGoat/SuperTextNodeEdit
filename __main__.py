@@ -1683,7 +1683,7 @@ class RTFWindow:
         self.updateImageResizeCursor(event)
         return 'break'
 
-    def displayRTFImageGroup(self, structure):
+    def displayRTFImageGroup(self, structure, insertion_index='end'):
         img_buildout_hex = self.extractRTFImageHex(structure)
 
         if img_buildout_hex == '':
@@ -1696,17 +1696,17 @@ class RTFWindow:
             print(f'ERROR: Could not load embedded image: {exc}')
             return None
 
-        self.createEmbeddedImage('end', img)
+        self.createEmbeddedImage(insertion_index, img)
 
         return None
 
-    def applyRTFCommandToStyle(self, command, style):
+    def applyRTFCommandToStyle(self, command, style, insertion_index='end'):
         if command == 'par':
-            self.insertStyledText('end', '\n', style)
+            self.insertStyledText(insertion_index, '\n', style)
             return style
 
         if command == 'tab':
-            self.insertStyledText('end', '\t', style)
+            self.insertStyledText(insertion_index, '\t', style)
             return style
 
         if command == 'pard':
@@ -1757,30 +1757,42 @@ class RTFWindow:
 
         return style
 
-    def displayNestedRTFStructure(self, structure):
+    def displayNestedRTFStructure(self, structure, insertion_index='end'):
         self.font_table = self.parseRTFFontTable(structure)
         self.color_table = self.parseRTFColorTable(structure)
-        self._displayNestedRTFStructure(structure, self.defaultTextStyle())
+        self._displayNestedRTFStructure(
+            structure,
+            self.defaultTextStyle(),
+            insertion_index,
+        )
 
-    def _displayNestedRTFStructure(self, structure, style):
+    def _displayNestedRTFStructure(self, structure, style, insertion_index='end'):
         first_command = self.firstRTFCommand(structure)
         if first_command in {'fonttbl', 'colortbl'}:
             return None
 
         if first_command == 'pict':
-            return self.displayRTFImageGroup(structure)
+            return self.displayRTFImageGroup(structure, insertion_index)
 
         current_style = style.copy()
         for token in structure:
             if isinstance(token, list):
-                self._displayNestedRTFStructure(token, current_style.copy())
+                self._displayNestedRTFStructure(
+                    token,
+                    current_style.copy(),
+                    insertion_index,
+                )
                 continue
 
             token_type, token_value = token
             if token_type in {'TEXT', 'CMDPARAM'}:
-                self.insertStyledText('end', token_value, current_style)
+                self.insertStyledText(insertion_index, token_value, current_style)
             elif token_type == 'RTFCMD':
-                current_style = self.applyRTFCommandToStyle(token_value, current_style)
+                current_style = self.applyRTFCommandToStyle(
+                    token_value,
+                    current_style,
+                    insertion_index,
+                )
             else:
                 print('ERROR: UNKNOWN PARSE TOKEN TO DISPLAY')
                 print(token)
@@ -2232,7 +2244,13 @@ class RTFWindow:
         else: # rtf data on the clipboard
             # parse it and display it as normal, to facilitate being able to copy-paste within SuperText
             parsed_clip = RTFParser(clip_rtf_data).parseme()
-            self.displayNestedRTFStructure(parsed_clip)
+            paste_mark = '__paste_insert'
+            self.text.mark_set(paste_mark, 'insert')
+            self.text.mark_gravity(paste_mark, 'right')
+            try:
+                self.displayNestedRTFStructure(parsed_clip, paste_mark)
+            finally:
+                self.text.mark_unset(paste_mark)
             #print(parsed_clip)
         return 'break'
 
