@@ -71,6 +71,7 @@ class ScrollableTreeView(tk.Frame):
         
         tree = ttk.Treeview(self, **kwargs)
         tree.grid(row=0, column=1, sticky='nsew')
+        self.widget = tree
         
         # set up vertical scrollbar to scroll the treeview
         scrolly = tk.Scrollbar(self, command=tree.yview)
@@ -85,6 +86,7 @@ class ScrollableTreeView(tk.Frame):
         self.heading = tree.heading
         self.column = tree.column
         self.bind = tree.bind
+        self.bbox = tree.bbox
         self.delete = tree.delete
         self.get_children = tree.get_children
         self.insert = tree.insert

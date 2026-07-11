@@ -102,6 +102,8 @@ class RTFWindow:
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
+        self.rename_entry = None
+        self.move_source_node = None
         
         # set up OS specific clipboard for copying images
         self.clip = Clipboard()
@@ -179,10 +181,13 @@ class RTFWindow:
 
         self.node_context_menu = tk.Menu(self.window, tearoff=False)
         self.node_context_menu.add_command(label='Rename', command=self.renameNode)
+        self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
         self.node_context_menu.add_separator()
         self.node_context_menu.add_command(label='Delete', command=self.deleteNode)
         self.tree.bind('<Button-3>', self.showNodeContextMenu)
+        self.tree.bind('<Button-1>', self.completeMoveNode, add='+')
+        self.window.bind_all('<Escape>', self.cancelNodeInteraction, add='+')
         
         # bind a callback for horizontal scroll adjustment
         self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.treeOpenClose(e), "treeOpenClose")))
@@ -251,6 +256,10 @@ class RTFWindow:
 
     def showNodeContextMenu(self, event):
         """Select the node under the pointer and show its context menu."""
+        if self.move_source_node is not None:
+            self.cancelMoveNode()
+            return 'break'
+
         node = self.tree.identify('item', event.x, event.y)
         if not node:
             return None
@@ -280,6 +289,7 @@ class RTFWindow:
         node_menu.add_separator()
         node_menu.add_command(label='New', command=self.createNewNode)
         node_menu.add_command(label='Rename', command=self.renameNode)
+        node_menu.add_command(label='Move', command=self.beginMoveNode)
         node_menu.add_command(label='Delete', command=self.deleteNode)
         menu_bar.add_cascade(label='Nodes', menu=node_menu)
 
@@ -2184,8 +2194,10 @@ class RTFWindow:
             old_path_withnodedir = self.resolveNodePath(old_path)
             new_path_withnodedir = self.resolveNodePath(new_path)
             newpath = RenamePathToPath(old_path_withnodedir, new_path_withnodedir)
+            if os.path.exists(newpath) or os.path.exists(newpath + '.rtf'):
+                raise ValueError('A node with that name already exists')
         except (AssertionError, ValueError) as e:
-            messagebox.showerror('Error Renaming Node', 'Error Renaming Node')
+            messagebox.showerror('Error Renaming Node', str(e) or 'Error Renaming Node')
             return None
 
         shutil.move(old_path_withnodedir, newpath)
@@ -2211,38 +2223,110 @@ class RTFWindow:
         node_pointer = node
         while (node_pointer := self.get_node_parent(node_pointer)) != '':
             self.tree.item(node_pointer, open=True)
+
+    def beginMoveNode(self):
+        """Wait for the user to click the node that will become the new parent."""
+        node = self.selected_node
+        if not node:
+            return None
+        self.cancelInlineRename()
+        self.move_source_node = node
+        self.tree.widget.configure(cursor='crosshair')
+        return 'break'
+
+    def cancelMoveNode(self):
+        if self.move_source_node is None:
+            return None
+        self.move_source_node = None
+        self.tree.widget.configure(cursor='')
+        return 'break'
+
+    def cancelNodeInteraction(self, event=None):
+        if self.move_source_node is not None:
+            return self.cancelMoveNode()
+        if self.rename_entry is not None:
+            self.cancelInlineRename()
+            return 'break'
+        return None
+
+    def completeMoveNode(self, event):
+        source = self.move_source_node
+        if source is None:
+            return None
+
+        destination = self.tree.identify('item', event.x, event.y)
+        if not destination:
+            return 'break'
+
+        pointer = destination
+        while pointer:
+            if pointer == source:
+                messagebox.showerror('Error Moving Node', 'A node cannot be moved inside itself.')
+                return 'break'
+            pointer = self.get_node_parent(pointer)
+
+        old_path = self.get_node_path(source)
+        new_path = os.path.join(
+            self.get_node_path(destination),
+            self.tree.item(source)['text'],
+        )
+        self.cancelMoveNode()
+        if os.path.normcase(os.path.normpath(new_path)) == os.path.normcase(os.path.normpath(old_path)):
+            return 'break'
+        self.renameFileAndDir(source, old_path, new_path)
+        return 'break'
     
     def killUIPopup(self):
         self.UI_popup.destroy()
         self.UI_popup = None
     
+    def cancelInlineRename(self):
+        if self.rename_entry is not None:
+            self.rename_entry.destroy()
+            self.rename_entry = None
+
+    def finishInlineRename(self, node, old_path):
+        if self.rename_entry is None:
+            return None
+        new_name = self.rename_entry.get().strip()
+        self.cancelInlineRename()
+        if not new_name or new_name in ('.', '..') or os.path.basename(new_name) != new_name:
+            messagebox.showerror('Error Renaming Node', 'Enter a node name, not a path.')
+            return None
+        parent_path = os.path.dirname(os.path.normpath(old_path))
+        if parent_path == '.':
+            parent_path = ''
+        new_path = os.path.join(parent_path, new_name) if parent_path else new_name
+        if os.path.normcase(os.path.normpath(new_path)) == os.path.normcase(os.path.normpath(old_path)):
+            return None
+        self.renameFileAndDir(node, old_path, new_path)
+
     def renameNode(self):
         node = self.selected_node
-        if len(node) == 0 or self.UI_popup != None: # if trying to rename no node
-            if self.UI_popup != None:
-                self.UI_popup.lift()
-            return None # do not rename, return None
-        
+        if not node:
+            return None
+        self.cancelMoveNode()
+        self.cancelInlineRename()
         node_path = self.get_node_path(node)
-        
-        self.UI_popup = (newWin := tk.Toplevel(self.window))
-        newWin.geometry('200x100')
-        newWin.resizable(False, False)
-        newWin.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
-        entryBox = tk.Entry(newWin)
-        entryBox.insert('end', node_path)
-        entryBox.selection_range(sum([len(x) + 1 for x in node_path.split(os.path.sep)[:-1]]), "end")
-        entryBox.focus()
-        entryBox.place(x=100, y=40, anchor='center')
-        
-        thebutton = tk.Button(newWin, text='rename', command=lambda: [
-        self.renameFileAndDir(node, node_path, entryBox.get()),
-        self.killUIPopup()
-        ])
-        thebutton.place(x=100, y=65, anchor='center')
+        bbox = self.tree.bbox(node, '#0')
+        if not bbox:
+            self.tree.widget.see(node)
+            self.window.update_idletasks()
+            bbox = self.tree.bbox(node, '#0')
+        if not bbox:
+            return None
 
-        entryBox.bind('<Return>', lambda _: thebutton.invoke())
-        entryBox.xview_moveto(1)
+        x, y, width, height = bbox
+        entry = ttk.Entry(self.tree.widget, font=self.tkinter_font)
+        entry.insert(0, self.tree.item(node)['text'])
+        entry.select_range(0, 'end')
+        entry.place(x=x, y=y, width=max(width, 100), height=height)
+        self.rename_entry = entry
+        entry.bind('<Return>', lambda _: self.finishInlineRename(node, node_path))
+        entry.bind('<Escape>', lambda _: self.cancelInlineRename())
+        entry.bind('<FocusOut>', lambda _: self.finishInlineRename(node, node_path))
+        entry.focus_set()
+        return 'break'
     
     def pasteFromClipboard(self, event):
         self.clip.open_clipboard()

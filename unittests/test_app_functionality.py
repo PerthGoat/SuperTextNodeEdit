@@ -189,6 +189,58 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertFalse((outside_dir / "escapedNode").exists())
         self.assertFalse((outside_dir / "escapedNode.rtf").exists())
 
+    def test_move_node_uses_next_clicked_node_as_parent(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        alpha = self.window.find_self("alpha")
+        beta = self.window.find_self("beta")
+        self.window.selected_node = alpha
+        self.window.beginMoveNode()
+
+        event = SimpleNamespace(x=10, y=20)
+        with mock.patch.object(self.window.tree, "identify", return_value=beta):
+            result = self.window.completeMoveNode(event)
+
+        self.assertEqual("break", result)
+        self.assertIsNone(self.window.move_source_node)
+        self.assertFalse((self.node_dir / "alpha").exists())
+        self.assertTrue((self.node_dir / "beta" / "alpha").is_dir())
+        self.assertTrue((self.node_dir / "beta" / "alpha.rtf").is_file())
+        self.assertEqual(os.path.join("beta", "alpha"), self.window.get_node_path(self.window.selected_node))
+
+    def test_escape_or_right_click_cancels_pending_move(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.selected_node = self.window.find_self("alpha")
+
+        self.window.beginMoveNode()
+        self.assertEqual("break", self.window.cancelNodeInteraction())
+        self.assertIsNone(self.window.move_source_node)
+
+        self.window.beginMoveNode()
+        event = SimpleNamespace(x=10, y=20, x_root=110, y_root=220)
+        self.assertEqual("break", self.window.showNodeContextMenu(event))
+        self.assertIsNone(self.window.move_source_node)
+
+    def test_inline_rename_changes_only_the_node_name(self):
+        self.write_node("parent", "Parent text")
+        self.write_node(Path("parent") / "child", "Child text")
+        self.window.populateNodeTree()
+        parent = self.window.find_self("parent")
+        self.window.populateNodeTree(str(self.node_dir / "parent") + os.sep, parent)
+        child = self.window.find_self(os.path.join("parent", "child"))
+        entry = mock.Mock()
+        entry.get.return_value = "renamed"
+        self.window.rename_entry = entry
+
+        self.window.finishInlineRename(child, os.path.join("parent", "child"))
+
+        entry.destroy.assert_called_once_with()
+        self.assertTrue((self.node_dir / "parent" / "renamed").is_dir())
+        self.assertTrue((self.node_dir / "parent" / "renamed.rtf").is_file())
+        self.assertFalse((self.node_dir / "renamed").exists())
+
     def test_action_queue_drains_on_calling_thread_without_reschedule_when_disabled(self):
         calling_thread = threading.get_ident()
         seen_threads = []
