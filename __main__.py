@@ -19,6 +19,7 @@ import glob
 import shutil
 import struct
 import tempfile
+import threading
 
 import configparser
 import re
@@ -32,6 +33,7 @@ from PIL import Image, ImageTk, ImageGrab
 from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from src.RTFParser import RTFParseError, RTFParser
+from src.search_index import NoteSearchIndex
 
 # for image copying
 from src.os_specific import Clipboard
@@ -84,6 +86,7 @@ class RTFWindow:
         # set up public variables to this class
         self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
         self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.sep # read in directory to hold RTF file tree
+        self.search_index = NoteSearchIndex(self.nodeDir)
         self.openFile = '' # holds the currently open file for easy saving etc.
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
         self.embedded_images = {}
@@ -106,6 +109,9 @@ class RTFWindow:
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
+        self.search_popup = None
+        self.search_generation = 0
+        self.search_results = {}
         self.rename_entry = None
         self.move_source_node = None
         
@@ -339,6 +345,12 @@ class RTFWindow:
         edit_menu = tk.Menu(menu_bar, tearoff=False)
         edit_menu.add_command(label='Undo', accelerator='Ctrl+Z', command=self.undoDocument)
         edit_menu.add_command(label='Redo', accelerator='Ctrl+Y', command=self.redoDocument)
+        edit_menu.add_separator()
+        edit_menu.add_command(
+            label='Search All Notes...',
+            accelerator='Ctrl+Shift+F',
+            command=self.showSearchDialog,
+        )
         menu_bar.add_cascade(label='Edit', menu=edit_menu)
 
         node_menu = tk.Menu(menu_bar, tearoff=False)
@@ -395,6 +407,233 @@ class RTFWindow:
         self.window.config(menu=menu_bar)
         self.window.bind_all('<Control-s>', self.saveRTFShortcut)
         self.window.bind_all('<Control-S>', self.saveRTFShortcut)
+        self.window.bind_all('<Control-Shift-f>', self.showSearchDialog)
+        self.window.bind_all('<Control-Shift-F>', self.showSearchDialog)
+
+    def showSearchDialog(self, event=None):
+        if self.search_popup is not None:
+            try:
+                self.search_popup.lift()
+                self.search_entry.focus_set()
+                return 'break'
+            except tk.TclError:
+                self.search_popup = None
+
+        popup = self.search_popup = tk.Toplevel(self.window)
+        popup.title('Search All Notes')
+        popup.geometry('820x460')
+        popup.transient(self.window)
+        popup.protocol('WM_DELETE_WINDOW', self.closeSearchDialog)
+        popup.grid_columnconfigure(0, weight=1)
+        popup.grid_rowconfigure(1, weight=1)
+
+        search_frame = ttk.Frame(popup, padding=(10, 10, 10, 6))
+        search_frame.grid(row=0, column=0, sticky='ew')
+        search_frame.grid_columnconfigure(0, weight=1)
+
+        self.search_query_var = tk.StringVar()
+        self.search_entry = ttk.Entry(
+            search_frame,
+            textvariable=self.search_query_var,
+        )
+        self.search_entry.grid(row=0, column=0, sticky='ew', padx=(0, 8))
+        self.search_button = ttk.Button(
+            search_frame,
+            text='Search',
+            command=self.startNoteSearch,
+        )
+        self.search_button.grid(row=0, column=1)
+
+        results_frame = ttk.Frame(popup, padding=(10, 0, 10, 6))
+        results_frame.grid(row=1, column=0, sticky='nsew')
+        results_frame.grid_columnconfigure(0, weight=1)
+        results_frame.grid_rowconfigure(0, weight=1)
+
+        self.search_results_tree = ttk.Treeview(
+            results_frame,
+            columns=('node', 'context'),
+            show='headings',
+            selectmode='browse',
+        )
+        self.search_results_tree.heading('node', text='Node')
+        self.search_results_tree.heading('context', text='Matching text')
+        self.search_results_tree.column('node', width=240, stretch=False)
+        self.search_results_tree.column('context', width=520, stretch=True)
+        self.search_results_tree.grid(row=0, column=0, sticky='nsew')
+        result_scrollbar = ttk.Scrollbar(
+            results_frame,
+            orient='vertical',
+            command=self.search_results_tree.yview,
+        )
+        result_scrollbar.grid(row=0, column=1, sticky='ns')
+        self.search_results_tree.configure(yscrollcommand=result_scrollbar.set)
+        self.search_results_tree.bind(
+            '<Double-1>',
+            lambda _event: self.openSelectedSearchResult(),
+        )
+        self.search_results_tree.bind(
+            '<Return>',
+            lambda _event: self.openSelectedSearchResult(),
+        )
+
+        footer = ttk.Frame(popup, padding=(10, 0, 10, 10))
+        footer.grid(row=2, column=0, sticky='ew')
+        footer.grid_columnconfigure(0, weight=1)
+        self.search_status_var = tk.StringVar(
+            value='Enter text to search every saved note.'
+        )
+        ttk.Label(footer, textvariable=self.search_status_var).grid(
+            row=0,
+            column=0,
+            sticky='w',
+        )
+        ttk.Button(
+            footer,
+            text='Open',
+            command=self.openSelectedSearchResult,
+        ).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(
+            footer,
+            text='Close',
+            command=self.closeSearchDialog,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        self.search_entry.bind('<Return>', lambda _event: self.startNoteSearch())
+        self.search_entry.focus_set()
+        return 'break'
+
+    def closeSearchDialog(self):
+        self.search_generation += 1
+        popup = self.search_popup
+        self.search_popup = None
+        self.search_results = {}
+        if popup is not None:
+            popup.destroy()
+
+    def startNoteSearch(self):
+        query = self.search_query_var.get()
+        if not query:
+            self.search_status_var.set('Enter text to search every saved note.')
+            return None
+
+        self.search_generation += 1
+        generation = self.search_generation
+        self.search_button.configure(state='disabled')
+        self.search_status_var.set('Updating the index and searching\u2026')
+        for item in self.search_results_tree.get_children():
+            self.search_results_tree.delete(item)
+        self.search_results = {}
+
+        worker = threading.Thread(
+            target=self._runNoteSearch,
+            args=(query, generation),
+            daemon=True,
+        )
+        worker.start()
+        return 'break'
+
+    def _runNoteSearch(self, query, generation):
+        try:
+            stats, results = self.search_index.refresh_and_search(query)
+            error = None
+        except Exception as exc:
+            stats, results = None, []
+            error = str(exc)
+
+        # Tk calls must stay on the event-loop thread. The app's existing
+        # priority queue is polled there, while indexing remains off-thread.
+        self.actionQueue.put(
+            PrioritizedItem(
+                0,
+                lambda: self._showNoteSearchResults(
+                    query,
+                    generation,
+                    stats,
+                    results,
+                    error,
+                ),
+                "showNoteSearchResults",
+            )
+        )
+
+    def _showNoteSearchResults(self, query, generation, stats, results, error):
+        if generation != self.search_generation or self.search_popup is None:
+            return None
+
+        self.search_button.configure(state='normal')
+        if error is not None:
+            self.search_status_var.set(f'Search failed: {error}')
+            return None
+
+        for result in results:
+            item = self.search_results_tree.insert(
+                '',
+                'end',
+                values=(result.path, result.snippet),
+            )
+            self.search_results[item] = result.path
+
+        count = len(results)
+        suffix = '' if count != 200 else ' (first 200)'
+        indexed = stats['updated']
+        index_note = f' Indexed {indexed} changed note(s).' if indexed else ''
+        self.search_status_var.set(
+            f'{count} match(es) for \u201c{query}\u201d{suffix}.{index_note}'
+        )
+        if results:
+            first = self.search_results_tree.get_children()[0]
+            self.search_results_tree.selection_set(first)
+            self.search_results_tree.focus(first)
+        return None
+
+    def openSelectedSearchResult(self):
+        selection = self.search_results_tree.selection()
+        if not selection:
+            return None
+        path = self.search_results.get(selection[0])
+        if path is not None:
+            self.selectNodePath(path)
+        return 'break'
+
+    def selectNodePath(self, relative_path):
+        """Expand lazy tree levels and select a note by its relative path."""
+        normalized_path = os.path.normpath(relative_path)
+        if normalized_path in ('', '.'):
+            return None
+
+        segments = normalized_path.split(os.sep)
+        parent = ''
+        accumulated = []
+        for segment in segments:
+            children = {
+                self.tree.item(child)['text']: child
+                for child in self.tree.get_children(parent)
+            }
+            if segment not in children:
+                parent_path = os.path.join(*accumulated) if accumulated else ''
+                full_parent_path = (
+                    self.resolveNodePath(parent_path)
+                    if parent_path
+                    else self._node_root_path()
+                )
+                self.populateNodeTree(full_parent_path, parent)
+                children = {
+                    self.tree.item(child)['text']: child
+                    for child in self.tree.get_children(parent)
+                }
+            if segment not in children:
+                return None
+            parent = children[segment]
+            accumulated.append(segment)
+            if segment != segments[-1]:
+                self.tree.item(parent, open=True)
+
+        self.tree.selection_set(parent)
+        self.tree.focus(parent)
+        self.tree.see(parent)
+        self.selected_node = parent
+        self.tryReadShowRTF(None)
+        return parent
     
     def LogWithDateTime(self, *strstolog : str):
         print(datetime.datetime.now(), ':', *strstolog)
@@ -2351,6 +2590,7 @@ class RTFWindow:
         data = self.convertToRTF('1.0', 'end')
         with open(self.openFile, 'w', encoding='utf-8') as fi:
             fi.write(data)
+        self.search_index.update_file(self.openFile)
         
         tk.messagebox.showinfo(title='Saved file', message='Saved file')
     

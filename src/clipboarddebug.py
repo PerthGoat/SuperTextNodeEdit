@@ -53,7 +53,7 @@ while True:
 
 pprint(format_mapping_dict)
 
-#exit(0)
+exit(0)
 
 # get clipboard data
 

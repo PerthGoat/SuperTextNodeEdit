@@ -141,6 +141,27 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
         self.assertEqual("Hello\nWorld\n", self.window.text.get("1.0", "end"))
 
+    def test_search_result_opens_a_deep_lazily_loaded_node(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node(Path("alpha") / "beta", "Deep result text")
+        self.window.populateNodeTree()
+
+        selected = self.window.selectNodePath(os.path.join("alpha", "beta"))
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(
+            os.path.join("alpha", "beta"),
+            self.window.get_node_path(selected),
+        )
+        self.assertEqual(
+            str(self.node_dir / "alpha" / "beta.rtf"),
+            self.window.openFile,
+        )
+        self.assertEqual(
+            "Deep result text",
+            self.window.text.get("1.0", "end-1c"),
+        )
+
     def test_undo_and_redo_document_edits(self):
         self.window.text.edit_reset()
         self.window.text.insert("1.0", "new text")

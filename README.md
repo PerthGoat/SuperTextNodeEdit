@@ -24,6 +24,16 @@ that do not have Microsoft Word, is able to open and display a RTF file. Also a 
 ## Cross-platform
 Since this uses standard Python bindings, it is naturally cross-platform. This means you can easily use this on Windows, Linux, and MacOS (assuming you have Python and PIL!).
 
+## Searching notes
+Use **Edit → Search All Notes** or press **Ctrl+Shift+F** to search for a
+case-insensitive substring across every saved note. Double-click a result to
+open it, including notes in tree branches that have not been expanded yet.
+
+Search uses an incremental SQLite n-gram index, so unchanged RTF files are not
+reparsed on every search. The hidden `.supertext-search.sqlite3` file beside the
+notes is only a rebuildable cache: it stores paths, file signatures, and hashed
+n-grams rather than a second plaintext copy of note contents.
+
 ## What is required to run this?
 You can run this as long as you have Python + PIL. PIL is used because it makes it very easy to convert images to the TK format, grab the clipboard, and ensure that the images in the document are
 consitent in their formatting. I like them to all be PNG because I like PNG.

@@ -4,3 +4,4 @@ __pycache__
 nodes
 .vscode
 unittests/artifacts/
+.supertext-search.sqlite3*
