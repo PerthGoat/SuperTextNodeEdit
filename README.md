@@ -34,6 +34,19 @@ reparsed on every search. The hidden `.supertext-search.sqlite3` file beside the
 notes is only a rebuildable cache: it stores paths, file signatures, and hashed
 n-grams rather than a second plaintext copy of note contents.
 
+## Archiving notes
+
+Select a note and use **Nodes → Archive** (or right-click it and choose
+**Archive**) to compress that note and its complete child subtree. Archives are
+stored as ZIP bundles in the hidden `.supertext-archive` folder inside the
+notebook directory; the active copies are removed only after the new bundle
+passes an integrity check.
+
+Use **Nodes → Browse Archive...** to list or search the visible text and names
+of notes inside the compressed bundles. Select any matching row and choose
+**Restore Bundle** to return that archived subtree to its original location.
+Restore refuses to overwrite an active note at the same path.
+
 ## Working with tabs
 Double-clicking a note opens it in an editor tab, so several notes can remain
 open at the same time. A single click previews the note in the first (leftmost)

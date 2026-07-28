@@ -34,6 +34,11 @@ from src.uicomponents import ScrollableText, ScrollableTreeView
 # RTF parsing
 from src.RTFParser import RTFParseError, RTFParser
 from src.search_index import NoteSearchIndex
+from src.archive_store import (
+    ArchiveConflictError,
+    ArchiveError,
+    NoteArchiveStore,
+)
 
 # for image copying
 from src.os_specific import Clipboard
@@ -116,6 +121,7 @@ class RTFWindow:
         self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
         self.nodeDir = os.path.normpath(config_dict['constants']['nodeDir']) + os.sep # read in directory to hold RTF file tree
         self.search_index = NoteSearchIndex(self.nodeDir)
+        self.archive_store = NoteArchiveStore(self.nodeDir)
         self.openFile = '' # holds the currently open file for easy saving etc.
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
         self.embedded_images = {}
@@ -142,6 +148,9 @@ class RTFWindow:
         self.search_popup = None
         self.search_generation = 0
         self.search_results = {}
+        self.archive_popup = None
+        self.archive_generation = 0
+        self.archive_results = {}
         self.rename_entry = None
         self.move_source_node = None
         self.tree_single_click_after_id = None
@@ -233,6 +242,7 @@ class RTFWindow:
         self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
         self.node_context_menu.add_separator()
+        self.node_context_menu.add_command(label='Archive', command=self.archiveSelectedNode)
         self.node_context_menu.add_command(label='Delete', command=self.deleteNode)
         self.tree.bind('<Button-3>', self.showNodeContextMenu)
         self.tree.bind('<Button-1>', self.completeMoveNode, add='+')
@@ -726,6 +736,9 @@ class RTFWindow:
         node_menu.add_command(label='New', command=self.createNewNode)
         node_menu.add_command(label='Rename', command=self.renameNode)
         node_menu.add_command(label='Move', command=self.beginMoveNode)
+        node_menu.add_command(label='Archive', command=self.archiveSelectedNode)
+        node_menu.add_command(label='Browse Archive...', command=self.showArchiveDialog)
+        node_menu.add_separator()
         node_menu.add_command(label='Delete', command=self.deleteNode)
         menu_bar.add_cascade(label='Nodes', menu=node_menu)
 
@@ -963,6 +976,217 @@ class RTFWindow:
         path = self.search_results.get(selection[0])
         if path is not None:
             self.selectNodePath(path)
+        return 'break'
+
+    def showArchiveDialog(self):
+        if self.archive_popup is not None:
+            try:
+                self.archive_popup.lift()
+                self.archive_search_entry.focus_set()
+                return 'break'
+            except tk.TclError:
+                self.archive_popup = None
+
+        popup = self.archive_popup = tk.Toplevel(self.window)
+        popup.title('Archived Notes')
+        popup.geometry('980x500')
+        popup.transient(self.window)
+        popup.protocol('WM_DELETE_WINDOW', self.closeArchiveDialog)
+        popup.grid_columnconfigure(0, weight=1)
+        popup.grid_rowconfigure(1, weight=1)
+
+        search_frame = ttk.Frame(popup, padding=(10, 10, 10, 6))
+        search_frame.grid(row=0, column=0, sticky='ew')
+        search_frame.grid_columnconfigure(0, weight=1)
+        self.archive_query_var = tk.StringVar()
+        self.archive_search_entry = ttk.Entry(
+            search_frame,
+            textvariable=self.archive_query_var,
+        )
+        self.archive_search_entry.grid(row=0, column=0, sticky='ew', padx=(0, 8))
+        self.archive_search_button = ttk.Button(
+            search_frame,
+            text='Search Archive',
+            command=self.startArchiveSearch,
+        )
+        self.archive_search_button.grid(row=0, column=1)
+
+        results_frame = ttk.Frame(popup, padding=(10, 0, 10, 6))
+        results_frame.grid(row=1, column=0, sticky='nsew')
+        results_frame.grid_columnconfigure(0, weight=1)
+        results_frame.grid_rowconfigure(0, weight=1)
+        self.archive_results_tree = ttk.Treeview(
+            results_frame,
+            columns=('note', 'archived_root', 'archived_at', 'context'),
+            show='headings',
+            selectmode='browse',
+        )
+        self.archive_results_tree.heading('note', text='Archived note')
+        self.archive_results_tree.heading('archived_root', text='Restore bundle')
+        self.archive_results_tree.heading('archived_at', text='Archived')
+        self.archive_results_tree.heading('context', text='Matching text')
+        self.archive_results_tree.column('note', width=220, stretch=False)
+        self.archive_results_tree.column('archived_root', width=180, stretch=False)
+        self.archive_results_tree.column('archived_at', width=170, stretch=False)
+        self.archive_results_tree.column('context', width=360, stretch=True)
+        self.archive_results_tree.grid(row=0, column=0, sticky='nsew')
+        scrollbar = ttk.Scrollbar(
+            results_frame,
+            orient='vertical',
+            command=self.archive_results_tree.yview,
+        )
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        self.archive_results_tree.configure(yscrollcommand=scrollbar.set)
+        self.archive_results_tree.bind(
+            '<Double-1>',
+            lambda _event: self.restoreSelectedArchive(),
+        )
+        self.archive_results_tree.bind(
+            '<Return>',
+            lambda _event: self.restoreSelectedArchive(),
+        )
+
+        footer = ttk.Frame(popup, padding=(10, 0, 10, 10))
+        footer.grid(row=2, column=0, sticky='ew')
+        footer.grid_columnconfigure(0, weight=1)
+        self.archive_status_var = tk.StringVar(
+            value='Loading archived notes\u2026'
+        )
+        ttk.Label(footer, textvariable=self.archive_status_var).grid(
+            row=0,
+            column=0,
+            sticky='w',
+        )
+        ttk.Button(
+            footer,
+            text='Restore Bundle',
+            command=self.restoreSelectedArchive,
+        ).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(
+            footer,
+            text='Close',
+            command=self.closeArchiveDialog,
+        ).grid(row=0, column=2, padx=(8, 0))
+
+        self.archive_search_entry.bind(
+            '<Return>',
+            lambda _event: self.startArchiveSearch(),
+        )
+        self.archive_search_entry.focus_set()
+        self.startArchiveSearch()
+        return 'break'
+
+    def closeArchiveDialog(self):
+        self.archive_generation += 1
+        popup = self.archive_popup
+        self.archive_popup = None
+        self.archive_results = {}
+        if popup is not None:
+            popup.destroy()
+
+    def startArchiveSearch(self):
+        query = self.archive_query_var.get()
+        self.archive_generation += 1
+        generation = self.archive_generation
+        self.archive_search_button.configure(state='disabled')
+        self.archive_status_var.set('Searching compressed archives\u2026')
+        for item in self.archive_results_tree.get_children():
+            self.archive_results_tree.delete(item)
+        self.archive_results = {}
+
+        worker = threading.Thread(
+            target=self._runArchiveSearch,
+            args=(query, generation),
+            daemon=True,
+        )
+        worker.start()
+        return 'break'
+
+    def _runArchiveSearch(self, query, generation):
+        try:
+            results = self.archive_store.search(query)
+            error = None
+        except Exception as exc:
+            results = []
+            error = str(exc)
+        self.actionQueue.put(
+            PrioritizedItem(
+                0,
+                lambda: self._showArchiveSearchResults(
+                    query,
+                    generation,
+                    results,
+                    error,
+                ),
+                "showArchiveSearchResults",
+            )
+        )
+
+    def _showArchiveSearchResults(self, query, generation, results, error):
+        if generation != self.archive_generation or self.archive_popup is None:
+            return None
+        self.archive_search_button.configure(state='normal')
+        if error is not None:
+            self.archive_status_var.set(f'Archive search failed: {error}')
+            return None
+
+        for result in results:
+            archived_at = result.archived_at.replace('T', ' ')[:19] + ' UTC'
+            item = self.archive_results_tree.insert(
+                '',
+                'end',
+                values=(
+                    result.note_path,
+                    result.archived_path,
+                    archived_at,
+                    result.snippet,
+                ),
+            )
+            self.archive_results[item] = result.archive_id
+
+        count = len(results)
+        suffix = '' if count != 200 else ' (first 200)'
+        if query:
+            status = f'{count} archived match(es) for \u201c{query}\u201d{suffix}.'
+        else:
+            status = f'{count} archived note(s){suffix}.'
+        self.archive_status_var.set(status)
+        if results:
+            first = self.archive_results_tree.get_children()[0]
+            self.archive_results_tree.selection_set(first)
+            self.archive_results_tree.focus(first)
+        return None
+
+    def restoreSelectedArchive(self):
+        selection = self.archive_results_tree.selection()
+        if not selection:
+            return None
+        archive_id = self.archive_results.get(selection[0])
+        if archive_id is None:
+            return None
+        values = self.archive_results_tree.item(selection[0], 'values')
+        archived_root = values[1]
+        if not messagebox.askyesno(
+            'Restore archived notes?',
+            f'Restore "{archived_root}" and all notes archived with it?',
+        ):
+            return None
+        try:
+            restored_path = self.archive_store.restore(archive_id)
+        except ArchiveConflictError as exc:
+            messagebox.showerror('Restore conflict', str(exc))
+            return None
+        except (ArchiveError, OSError) as exc:
+            messagebox.showerror('Restore failed', str(exc))
+            return None
+
+        self.populateNodeTree()
+        self.selectNodePath(restored_path, open_document=False)
+        self.startArchiveSearch()
+        messagebox.showinfo(
+            'Archive restored',
+            f'Restored "{restored_path}" to the active notebook.',
+        )
         return 'break'
 
     def selectNodePath(self, relative_path, open_document=True):
@@ -3135,12 +3359,18 @@ class RTFWindow:
         except ValueError:
             return False
 
-    def closeDocumentsUnderNodePath(self, node_path):
+    def closeDocumentsUnderNodePath(self, node_path, force=True):
         for tab_id, document in list(self.open_documents_by_tab.items()):
             if document.path and self.documentIsUnderNodePath(document.path, node_path):
-                self.closeDocumentTab(tab_id, force=True, create_placeholder=False)
+                if not self.closeDocumentTab(
+                    tab_id,
+                    force=force,
+                    create_placeholder=False,
+                ):
+                    return False
         if not self.editor_tabs.tabs():
             self.activateDocument(self.createDocumentTab())
+        return True
 
     def remapOpenDocumentPaths(self, old_node_path, new_node_path):
         old_node_path = os.path.abspath(os.path.normpath(old_node_path))
@@ -3178,6 +3408,39 @@ class RTFWindow:
             if document is self.active_document:
                 self.openFile = document.path
     
+    def archiveSelectedNode(self):
+        node = self.selected_node
+        if not node:
+            return None
+
+        relative_path = self.get_node_path(node)
+        node_path = self.resolveNodePath(relative_path)
+        if not messagebox.askyesno(
+            'Archive notes?',
+            f'Compress "{relative_path}" and all of its child notes into the archive?',
+        ):
+            return None
+
+        # Closing affected tabs gives each unsaved document its normal
+        # save/discard/cancel prompt before any on-disk files are moved.
+        if not self.closeDocumentsUnderNodePath(node_path, force=False):
+            return None
+        try:
+            record = self.archive_store.archive(relative_path)
+        except (ArchiveError, OSError, shutil.Error) as exc:
+            messagebox.showerror('Archive failed', str(exc))
+            return None
+
+        self.populateNodeTree()
+        messagebox.showinfo(
+            'Notes archived',
+            (
+                f'Archived "{record.original_path}" and '
+                f'{record.note_count} note(s) to the compressed archive.'
+            ),
+        )
+        return 'break'
+
     def deleteNode(self):
         parent = self.selected_node
         if len(parent) == 0:
@@ -3521,8 +3784,10 @@ class RTFWindow:
             self.selected_node = self.tree.get_children()[0]
             self.tree.selection_set(self.selected_node) # default select first thing in tree
             self.tree.focus(item=self.selected_node) # focus as well
+        elif not self.tree.get_children():
+            self.selected_node = ()
 
 if __name__ == '__main__':
-    dev_version_number = 1.15
+    dev_version_number = 1.16
     print(f"SuperText Version {dev_version_number}")
     RTFWindow()

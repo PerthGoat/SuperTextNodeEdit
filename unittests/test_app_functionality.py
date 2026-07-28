@@ -390,6 +390,28 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(new_file.is_file())
         self.assertEqual(self.window.RTF_HEADER + "}", new_file.read_text())
 
+    def test_archive_selected_node_removes_subtree_and_creates_searchable_bundle(self):
+        self.write_node("parent", "Parent text")
+        self.write_node(Path("parent") / "child", "Archived child phrase")
+        self.window.populateNodeTree()
+        self.window.selected_node = self.window.find_self("parent")
+
+        with (
+            mock.patch.object(app.messagebox, "askyesno", return_value=True),
+            mock.patch.object(app.messagebox, "showinfo"),
+        ):
+            result = self.window.archiveSelectedNode()
+
+        self.assertEqual("break", result)
+        self.assertFalse((self.node_dir / "parent.rtf").exists())
+        self.assertFalse((self.node_dir / "parent").exists())
+        matches = self.window.archive_store.search("child phrase")
+        self.assertEqual(
+            [os.path.join("parent", "child")],
+            [match.note_path for match in matches],
+        )
+        self.assertEqual(1, len(self.window.archive_store.list_archives()))
+
     def test_node_context_menu_selects_right_clicked_node(self):
         self.write_node("alpha", "Alpha text")
         self.write_node("beta", "Beta text")

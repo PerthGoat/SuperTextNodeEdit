@@ -110,6 +110,7 @@ class NoteSearchIndex:
     """A persistent trigram index whose source of truth remains the RTF files."""
 
     DB_FILENAME = ".supertext-search.sqlite3"
+    ARCHIVE_DIRNAME = ".supertext-archive"
     MAX_QUERY_GRAMS = 64
 
     def __init__(self, node_root):
@@ -140,6 +141,12 @@ class NoteSearchIndex:
 
     def _iter_note_files(self):
         for directory, _subdirectories, filenames in os.walk(self.node_root):
+            if os.path.normcase(directory) == os.path.normcase(self.node_root):
+                _subdirectories[:] = [
+                    name
+                    for name in _subdirectories
+                    if name != self.ARCHIVE_DIRNAME
+                ]
             for filename in filenames:
                 if filename.lower().endswith(".rtf"):
                     full_path = os.path.join(directory, filename)
