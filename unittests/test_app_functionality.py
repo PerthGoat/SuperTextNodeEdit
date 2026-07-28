@@ -141,6 +141,86 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
         self.assertEqual("Hello\nWorld\n", self.window.text.get("1.0", "end"))
 
+    def test_opening_multiple_nodes_creates_tabs_and_preserves_unsaved_edits(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        alpha_document = self.window.active_document
+        self.window.text.insert("end-1c", " changed")
+
+        beta = self.window.find_self("beta")
+        self.window.tree.selection_set(beta)
+        self.window.tryReadShowRTF(None)
+
+        self.assertEqual(2, len(self.window.editor_tabs.tabs()))
+        self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
+
+        alpha = self.window.find_self("alpha")
+        self.window.tree.selection_set(alpha)
+        self.window.tryReadShowRTF(None)
+
+        self.assertIs(alpha_document, self.window.active_document)
+        self.assertEqual(2, len(self.window.editor_tabs.tabs()))
+        self.assertEqual("Alpha text changed", self.window.text.get("1.0", "end-1c"))
+
+    def test_each_open_tab_keeps_its_own_undo_history(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        self.window.text.insert("end-1c", " changed")
+
+        beta = self.window.find_self("beta")
+        self.window.tree.selection_set(beta)
+        self.window.tryReadShowRTF(None)
+        self.window.text.insert("end-1c", " changed")
+
+        alpha = self.window.find_self("alpha")
+        self.window.tree.selection_set(alpha)
+        self.window.tryReadShowRTF(None)
+        self.window.undoDocument()
+
+        self.assertEqual("Alpha text", self.window.text.get("1.0", "end-1c"))
+        beta_document = self.window.open_documents_by_path[
+            self.window.normalizedDocumentPath(str(self.node_dir / "beta.rtf"))
+        ]
+        self.window.selectDocumentTab(beta_document)
+        self.assertEqual("Beta text changed", self.window.text.get("1.0", "end-1c"))
+
+    def test_closing_a_modified_tab_can_discard_and_leaves_placeholder(self):
+        note_file = self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        self.window.text.insert("end-1c", " changed")
+
+        with mock.patch.object(app.messagebox, "askyesnocancel", return_value=False):
+            self.window.closeCurrentTab()
+
+        self.assertEqual(1, len(self.window.editor_tabs.tabs()))
+        self.assertEqual("", self.window.openFile)
+        saved_rtf = note_file.read_text(encoding="utf-8")
+        self.assertIn("Alpha text", saved_rtf)
+        self.assertNotIn("changed", saved_rtf)
+
+    def test_renaming_an_open_node_updates_its_tab_path(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        document = self.window.active_document
+        node = self.window.find_self("alpha")
+
+        self.window.renameFileAndDir(node, "alpha", "renamed")
+
+        self.assertIs(document, self.window.active_document)
+        self.assertEqual(str(self.node_dir / "renamed.rtf"), document.path)
+        self.assertEqual("renamed", document.relative_path)
+        self.assertEqual(document.path, self.window.openFile)
+        self.assertEqual(
+            "renamed",
+            self.window.editor_tabs.tab(document.tab_id, "text"),
+        )
+
     def test_search_result_opens_a_deep_lazily_loaded_node(self):
         self.write_node("alpha", "Alpha text")
         self.write_node(Path("alpha") / "beta", "Deep result text")

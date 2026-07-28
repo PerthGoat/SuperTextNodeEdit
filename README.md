@@ -34,6 +34,15 @@ reparsed on every search. The hidden `.supertext-search.sqlite3` file beside the
 notes is only a rebuildable cache: it stores paths, file signatures, and hashed
 n-grams rather than a second plaintext copy of note contents.
 
+## Working with tabs
+Selecting a note opens it in an editor tab, so several notes can remain open at
+the same time. Selecting an already-open note switches to its existing tab.
+Each tab keeps its own unsaved edits and undo history.
+
+Use **Ctrl+W** to close the current tab and **Ctrl+Shift+S** to save all modified
+tabs. Tabs can also be closed with the middle mouse button or their right-click
+menu. A leading `*` on a tab means that it has unsaved changes.
+
 ## What is required to run this?
 You can run this as long as you have Python + PIL. PIL is used because it makes it very easy to convert images to the TK format, grab the clipboard, and ensure that the images in the document are
 consitent in their formatting. I like them to all be PNG because I like PNG.

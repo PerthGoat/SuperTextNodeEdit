@@ -53,6 +53,34 @@ class PrioritizedItem:
     item: Any=field(compare=False)
     descr: str=field(compare=False)
 
+@dataclass
+class OpenDocument:
+    """Editor and document-specific state for one open tab."""
+    tab_id: str
+    text: Any
+    path: str = ''
+    relative_path: str = ''
+    tkinter_imagelist: list = field(default_factory=list)
+    embedded_images: dict = field(default_factory=dict)
+    embedded_files: dict = field(default_factory=dict)
+    font_table: dict = field(default_factory=lambda: {0: "Consolas"})
+    color_table: dict = field(default_factory=lambda: {0: None})
+    style_tags: dict = field(default_factory=dict)
+    style_tag_names: dict = field(default_factory=dict)
+    style_tag_counter: int = 0
+    typing_style: dict = field(default_factory=lambda: {
+        "font_family": "Consolas",
+        "font_size": 12,
+        "color": None,
+        "bold": False,
+        "italic": False,
+        "alignment": "left",
+    })
+    current_text_cursor: str = 'xterm'
+    image_resize_state: Any = None
+    dirty: bool = False
+    loading: bool = False
+
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
     ACTION_QUEUE_POLL_MS = 10
@@ -104,6 +132,7 @@ class RTFWindow:
         self.style_tag_names = {}
         self.style_tag_counter = 0
         self.typing_style = self.defaultTextStyle()
+        self.toolbar_style_after_id = None
         self.center_layout_after_id = None
         self.table_layout_after_id = None
 
@@ -114,6 +143,9 @@ class RTFWindow:
         self.search_results = {}
         self.rename_entry = None
         self.move_source_node = None
+        self.open_documents_by_tab = {}
+        self.open_documents_by_path = {}
+        self.active_document = None
         
         # set up OS specific clipboard for copying images
         self.clip = Clipboard()
@@ -136,12 +168,14 @@ class RTFWindow:
         self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
         original_destroy = self.window.destroy
         def destroyWindow():
+            self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
             self.attachment_tempdir.cleanup()
             original_destroy()
         self.window.destroy = destroyWindow
         self.window.bind('<Destroy>', self.cancelScheduledCenteredTextLayoutRefresh, add='+')
+        self.window.protocol('WM_DELETE_WINDOW', self.closeWindow)
         
         self.tkinter_font = tk.font.Font(family='Consolas', size=12)
 
@@ -217,20 +251,19 @@ class RTFWindow:
 
         # end file tree
         
-        # start textarea
+        # start tabbed text area
         textFrame = tk.Frame(panedWin)
-        #textFrame.grid(row=0, column=1, sticky='nsew')
         panedWin.add(textFrame)
-        
-        self.text = ScrollableText(
-            textFrame,
-            font=self.tkinter_font,
-            cursor=self.TEXT_CURSOR,
-            undo=True,
-            autoseparators=True,
-            maxundo=-1,
-        )
-        self.text.pack(fill='both', expand='True') # text fills entire remaining space
+        self.editor_tabs = ttk.Notebook(textFrame)
+        self.notebook = self.editor_tabs
+        self.editor_tabs.pack(fill='both', expand=True)
+        self.editor_tabs.bind('<<NotebookTabChanged>>', self.onEditorTabChanged)
+        self.editor_tabs.bind('<Button-2>', self.closeTabAtEvent)
+        self.editor_tabs.bind('<Button-3>', self.showTabContextMenu)
+
+        self.tab_context_menu = tk.Menu(self.window, tearoff=False)
+        self.tab_context_menu.add_command(label='Close Tab', command=self.closeCurrentTab)
+        self.tab_context_menu.add_command(label='Close Other Tabs', command=self.closeOtherTabs)
 
         self.text_context_menu = tk.Menu(self.window, tearoff=False)
         self.text_context_menu.add_command(label='Undo', command=self.undoDocument)
@@ -239,31 +272,9 @@ class RTFWindow:
         self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
         self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
         self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
-        self.text.bind('<Button-3>', self.showTextContextMenu)
-        
-        self.text.bind('<Control-v>', self.pasteFromClipboard) # bound to enable clipboard pasting
-        self.text.bind('<Control-c>', self.copyFromClipboard) # bound to enable clipboard rich copying
-        self.text.bind('<Control-z>', self.undoDocument)
-        self.text.bind('<Control-Z>', self.undoDocument)
-        self.text.bind('<Control-y>', self.redoDocument)
-        self.text.bind('<Control-Y>', self.redoDocument)
-        self.text.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
-        self.text.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
-        self.text.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
-        self.text.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
-        self.text.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
-        self.text.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
-        self.text.bind('<KeyRelease>', self.scheduleTableLayoutRefresh, add='+')
-        self.text.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
-        self.text.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
-        self.text.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
-        self.text.bind('<Configure>', self.scheduleTableLayoutRefresh, add='+')
-        self.text.bind('<Motion>', self.updateImageResizeCursor, add='+')
-        self.text.bind('<ButtonPress-1>', self.beginImageResize, add='+')
-        self.text.bind('<B1-Motion>', self.dragImageResize, add='+')
-        self.text.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
-        
-        self.text.bind('<Control-x>', self.cutTextSelection) # bound to enable clipboard rich cutting
+
+        initial_document = self.createDocumentTab()
+        self.activateDocument(initial_document)
         
         # end textarea
         
@@ -284,6 +295,254 @@ class RTFWindow:
         
         if self.start_mainloop:
             self.window.mainloop()
+
+    def bindTextEditor(self, editor):
+        """Attach the document editing behavior to a tab's text widget."""
+        editor.bind('<Button-3>', self.showTextContextMenu)
+        editor.bind('<Control-v>', self.pasteFromClipboard)
+        editor.bind('<Control-c>', self.copyFromClipboard)
+        editor.bind('<Control-z>', self.undoDocument)
+        editor.bind('<Control-Z>', self.undoDocument)
+        editor.bind('<Control-y>', self.redoDocument)
+        editor.bind('<Control-Y>', self.redoDocument)
+        editor.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
+        editor.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
+        editor.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
+        editor.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
+        editor.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
+        editor.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
+        editor.bind('<KeyRelease>', self.scheduleTableLayoutRefresh, add='+')
+        editor.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
+        editor.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
+        editor.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
+        editor.bind('<Configure>', self.scheduleTableLayoutRefresh, add='+')
+        editor.bind('<Motion>', self.updateImageResizeCursor, add='+')
+        editor.bind('<ButtonPress-1>', self.beginImageResize, add='+')
+        editor.bind('<B1-Motion>', self.dragImageResize, add='+')
+        editor.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
+        editor.bind('<Control-x>', self.cutTextSelection)
+        editor.bind(
+            '<<Modified>>',
+            lambda _event, current_editor=editor: self.onDocumentModified(current_editor),
+            add='+',
+        )
+
+    def createDocumentTab(self, path='', relative_path=''):
+        editor = ScrollableText(
+            self.editor_tabs,
+            font=self.tkinter_font,
+            cursor=self.TEXT_CURSOR,
+            undo=True,
+            autoseparators=True,
+            maxundo=-1,
+        )
+        self.bindTextEditor(editor)
+        tab_id = str(editor)
+        document = OpenDocument(
+            tab_id=tab_id,
+            text=editor,
+            path=path,
+            relative_path=relative_path,
+        )
+        self.open_documents_by_tab[tab_id] = document
+        if path:
+            self.open_documents_by_path[self.normalizedDocumentPath(path)] = document
+        self.editor_tabs.add(editor, text=self.documentTabTitle(document))
+        editor.edit_modified(False)
+        return document
+
+    def normalizedDocumentPath(self, path):
+        if not path:
+            return ''
+        return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+    def documentTabTitle(self, document):
+        if document.relative_path:
+            title = document.relative_path.replace(os.sep, ' \u203a ')
+        elif document.path:
+            title = os.path.splitext(os.path.basename(document.path))[0]
+        else:
+            title = 'No note open'
+        return f'* {title}' if document.dirty else title
+
+    def updateDocumentTabTitle(self, document):
+        try:
+            self.editor_tabs.tab(document.tab_id, text=self.documentTabTitle(document))
+        except tk.TclError:
+            pass
+
+    def captureActiveDocumentState(self):
+        document = self.active_document
+        if document is None:
+            return None
+        document.tkinter_imagelist = self.tkinter_imagelist
+        document.embedded_images = self.embedded_images
+        document.embedded_files = self.embedded_files
+        document.font_table = self.font_table
+        document.color_table = self.color_table
+        document.style_tags = self.style_tags
+        document.style_tag_names = self.style_tag_names
+        document.style_tag_counter = self.style_tag_counter
+        document.typing_style = self.typing_style.copy()
+        document.current_text_cursor = self.current_text_cursor
+        document.image_resize_state = self.image_resize_state
+        if document.path:
+            document.dirty = bool(document.text.edit_modified())
+        self.updateDocumentTabTitle(document)
+        return document
+
+    def activateDocument(self, document, select_tab=True):
+        if document is None:
+            return None
+        if self.active_document is not document:
+            self.cancelScheduledToolbarStyleUpdate()
+            self.cancelScheduledCenteredTextLayoutRefresh()
+            self.cancelScheduledTableLayoutRefresh()
+            self.captureActiveDocumentState()
+
+        self.active_document = document
+        self.text = document.text
+        self.openFile = document.path
+        self.tkinter_imagelist = document.tkinter_imagelist
+        self.embedded_images = document.embedded_images
+        self.embedded_files = document.embedded_files
+        self.font_table = document.font_table
+        self.color_table = document.color_table
+        self.style_tags = document.style_tags
+        self.style_tag_names = document.style_tag_names
+        self.style_tag_counter = document.style_tag_counter
+        self.typing_style = document.typing_style.copy()
+        self.current_text_cursor = document.current_text_cursor
+        self.image_resize_state = document.image_resize_state
+
+        if select_tab and self.editor_tabs.select() != document.tab_id:
+            self.editor_tabs.select(document.tab_id)
+        self.setToolbarStyleVars(self.typing_style)
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        return document
+
+    def onEditorTabChanged(self, event=None):
+        tab_id = self.editor_tabs.select()
+        document = self.open_documents_by_tab.get(tab_id)
+        if document is None:
+            return None
+        self.activateDocument(document, select_tab=False)
+        if document.relative_path:
+            self.selectNodePath(document.relative_path, open_document=False)
+        document.text.focus_set()
+        return None
+
+    def onDocumentModified(self, editor):
+        document = self.open_documents_by_tab.get(str(editor))
+        if document is None:
+            return None
+        modified = bool(editor.edit_modified())
+        if document.loading:
+            if modified:
+                editor.edit_modified(False)
+            return None
+        document.dirty = modified and bool(document.path)
+        self.updateDocumentTabTitle(document)
+        return None
+
+    def markCurrentDocumentModified(self):
+        document = self.active_document
+        if document is None or document.loading or not document.path:
+            return None
+        self.text.edit_modified(True)
+        document.dirty = True
+        self.updateDocumentTabTitle(document)
+        return None
+
+    def selectDocumentTab(self, document):
+        self.activateDocument(document)
+        document.text.focus_set()
+        return document
+
+    def tabIdAtEvent(self, event):
+        try:
+            return self.editor_tabs.tabs()[self.editor_tabs.index(f'@{event.x},{event.y}')]
+        except (tk.TclError, IndexError):
+            return None
+
+    def closeTabAtEvent(self, event):
+        tab_id = self.tabIdAtEvent(event)
+        if tab_id is not None:
+            self.closeDocumentTab(tab_id)
+        return 'break'
+
+    def showTabContextMenu(self, event):
+        tab_id = self.tabIdAtEvent(event)
+        if tab_id is None:
+            return None
+        self.editor_tabs.select(tab_id)
+        self.activateDocument(self.open_documents_by_tab.get(tab_id), select_tab=False)
+        try:
+            self.tab_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.tab_context_menu.grab_release()
+        return 'break'
+
+    def closeCurrentTab(self, event=None):
+        tab_id = self.editor_tabs.select()
+        if tab_id:
+            self.closeDocumentTab(tab_id)
+        return 'break'
+
+    def closeOtherTabs(self):
+        selected_tab = self.editor_tabs.select()
+        for tab_id in list(self.editor_tabs.tabs()):
+            if tab_id != selected_tab and not self.closeDocumentTab(tab_id):
+                break
+        return 'break'
+
+    def closeDocumentTab(self, tab_id, force=False, create_placeholder=True):
+        document = self.open_documents_by_tab.get(tab_id)
+        if document is None:
+            return True
+
+        if document is self.active_document:
+            self.captureActiveDocumentState()
+        if document.dirty and not force:
+            answer = messagebox.askyesnocancel(
+                'Save changes?',
+                f'Save changes to {self.documentTabTitle(document).lstrip("* ")} before closing?',
+            )
+            if answer is None:
+                return False
+            if answer:
+                self.activateDocument(document)
+                if not self.writeCurrentDocument(show_confirmation=False):
+                    return False
+
+        if document.path:
+            self.open_documents_by_path.pop(self.normalizedDocumentPath(document.path), None)
+        self.open_documents_by_tab.pop(tab_id, None)
+        if document is self.active_document:
+            self.active_document = None
+        try:
+            self.editor_tabs.forget(tab_id)
+            document.text.destroy()
+        except tk.TclError:
+            pass
+
+        remaining_tabs = self.editor_tabs.tabs()
+        if remaining_tabs:
+            self.activateDocument(
+                self.open_documents_by_tab.get(self.editor_tabs.select()),
+                select_tab=False,
+            )
+        elif create_placeholder:
+            self.activateDocument(self.createDocumentTab())
+        return True
+
+    def closeWindow(self):
+        for tab_id in list(self.editor_tabs.tabs()):
+            if not self.closeDocumentTab(tab_id, create_placeholder=False):
+                return None
+        self.window.destroy()
+        return 'break'
 
     def showNodeContextMenu(self, event):
         """Select the node under the pointer and show its context menu."""
@@ -338,8 +597,10 @@ class RTFWindow:
 
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label='Save', accelerator='Ctrl+S', command=self.saveRTF)
+        file_menu.add_command(label='Save All', accelerator='Ctrl+Shift+S', command=self.saveAllTabs)
+        file_menu.add_command(label='Close Tab', accelerator='Ctrl+W', command=self.closeCurrentTab)
         file_menu.add_separator()
-        file_menu.add_command(label='Exit', command=self.window.destroy)
+        file_menu.add_command(label='Exit', command=self.closeWindow)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
         edit_menu = tk.Menu(menu_bar, tearoff=False)
@@ -406,7 +667,10 @@ class RTFWindow:
 
         self.window.config(menu=menu_bar)
         self.window.bind_all('<Control-s>', self.saveRTFShortcut)
-        self.window.bind_all('<Control-S>', self.saveRTFShortcut)
+        self.window.bind_all('<Control-Shift-s>', self.saveAllTabs)
+        self.window.bind_all('<Control-Shift-S>', self.saveAllTabs)
+        self.window.bind_all('<Control-w>', self.closeCurrentTab)
+        self.window.bind_all('<Control-W>', self.closeCurrentTab)
         self.window.bind_all('<Control-Shift-f>', self.showSearchDialog)
         self.window.bind_all('<Control-Shift-F>', self.showSearchDialog)
 
@@ -595,7 +859,7 @@ class RTFWindow:
             self.selectNodePath(path)
         return 'break'
 
-    def selectNodePath(self, relative_path):
+    def selectNodePath(self, relative_path, open_document=True):
         """Expand lazy tree levels and select a note by its relative path."""
         normalized_path = os.path.normpath(relative_path)
         if normalized_path in ('', '.'):
@@ -632,7 +896,8 @@ class RTFWindow:
         self.tree.focus(parent)
         self.tree.see(parent)
         self.selected_node = parent
-        self.tryReadShowRTF(None)
+        if open_document:
+            self.tryReadShowRTF(None)
         return parent
     
     def LogWithDateTime(self, *strstolog : str):
@@ -1111,9 +1376,11 @@ class RTFWindow:
 
     def refreshCenteredTextLayout(self):
         self.cancelScheduledCenteredTextLayoutRefresh()
+        was_modified = bool(self.text.edit_modified())
 
         if not self.hasCenteredStyleRanges():
             self.removeCenteredTextPadding()
+            self.text.edit_modified(was_modified)
             return None
 
         self.text.update_idletasks()
@@ -1140,11 +1407,28 @@ class RTFWindow:
                     self.text.delete(start, finish)
                 self.text.tag_remove(tag, '1.0', 'end')
 
+        self.text.edit_modified(was_modified)
         return None
 
     def scheduleToolbarStyleUpdate(self, event=None):
-        self.window.after_idle(self.updateToolbarStyleFromSelection)
+        if self.toolbar_style_after_id is None:
+            self.toolbar_style_after_id = self.window.after_idle(
+                self.runScheduledToolbarStyleUpdate
+            )
         return None
+
+    def cancelScheduledToolbarStyleUpdate(self, event=None):
+        if self.toolbar_style_after_id is not None:
+            try:
+                self.window.after_cancel(self.toolbar_style_after_id)
+            except tk.TclError:
+                pass
+            self.toolbar_style_after_id = None
+        return None
+
+    def runScheduledToolbarStyleUpdate(self):
+        self.toolbar_style_after_id = None
+        return self.updateToolbarStyleFromSelection()
 
     def updateToolbarStyleFromSelection(self):
         style = self.getTextStyleAt(self.getToolbarStyleIndex())
@@ -1218,6 +1502,7 @@ class RTFWindow:
                 self.text.tag_add(tag, current, next_index)
             current = next_index
 
+        self.markCurrentDocumentModified()
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
         return 'break'
@@ -1639,6 +1924,7 @@ class RTFWindow:
 
     def refreshTableLayout(self):
         self.cancelScheduledTableLayoutRefresh()
+        was_modified = bool(self.text.edit_modified())
         self.removeTableLayoutTags()
 
         last_line = int(self.text.index('end-1c').split('.')[0])
@@ -1660,6 +1946,7 @@ class RTFWindow:
             for tagged_line in range(block_start, block_finish + 1):
                 self.text.tag_add(tag, f'{tagged_line}.0', f'{tagged_line}.end')
 
+        self.text.edit_modified(was_modified)
         return None
 
     def scheduleTableLayoutRefresh(self, event=None):
@@ -1939,6 +2226,7 @@ class RTFWindow:
         if old_photo in self.tkinter_imagelist:
             self.tkinter_imagelist.remove(old_photo)
 
+        self.markCurrentDocumentModified()
         return resized_photo
 
     def imageResizeHandleAtPoint(self, x, y, bbox):
@@ -2257,9 +2545,6 @@ class RTFWindow:
         return self.createEmbeddedFile(insertion_index, filename, data)
 
     def tryReadShowRTF(self, event): # event is not used
-        self.text.delete('1.0', 'end') # delete all text in textbox currently
-        self.text.edit_reset()
-        
         selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
         
         if len(selection) == 0: # if nothing is selected
@@ -2271,6 +2556,11 @@ class RTFWindow:
             return None
         
         node_path = self.resolveNodePath(sel_path) + '.rtf'
+        normalized_path = self.normalizedDocumentPath(node_path)
+        open_document = self.open_documents_by_path.get(normalized_path)
+        if open_document is not None:
+            self.selectDocumentTab(open_document)
+            return open_document
         
         try:
             with open(node_path, 'r', encoding='utf-8') as fi:
@@ -2279,7 +2569,6 @@ class RTFWindow:
             with open(node_path, 'r') as fi:
                 data = fi.read()
         except OSError as exc:
-            self.openFile = ''
             messagebox.showerror('Error Reading Node', f'Could not read node file: {exc}')
             return None
 
@@ -2287,29 +2576,55 @@ class RTFWindow:
         try:
             rt = RTFParser(data).parseme()
         except RTFParseError as exc:
-            self.openFile = ''
             messagebox.showerror('Error Reading Node', f'Could not parse node RTF: {exc}')
             return None
 
         # verify the header matches the expected for an RTF that this program can read
         if not self.isSupportedRTF(rt):
-            self.openFile = ''
             messagebox.showerror('Error Reading Node', 'Unsupported RTF header')
             return None
-        
-        # all header checks have passed
-        self.openFile = node_path
-        
-        # clear existing images from image list
-        self.tkinter_imagelist = []
-        self.embedded_images = {}
-        self.embedded_files = {}
-        self.image_resize_state = None
 
-        self.displayNestedRTFStructure(rt)
-        # Loading a node establishes a new document baseline. Its parsed inserts
-        # must not be exposed as user edits, nor may undo cross node boundaries.
-        self.text.edit_reset()
+        document = self.active_document
+        can_reuse_placeholder = (
+            document is not None
+            and not document.path
+            and self.text.get('1.0', 'end-1c') == ''
+        )
+        if not can_reuse_placeholder:
+            document = self.createDocumentTab(node_path, sel_path)
+        else:
+            document.path = node_path
+            document.relative_path = sel_path
+            self.open_documents_by_path[normalized_path] = document
+
+        document.loading = True
+        document.tkinter_imagelist = []
+        document.embedded_images = {}
+        document.embedded_files = {}
+        document.font_table = {0: self.DEFAULT_FONT_FAMILY}
+        document.color_table = {0: self.DEFAULT_TEXT_COLOR}
+        document.style_tags = {}
+        document.style_tag_names = {}
+        document.style_tag_counter = 0
+        document.typing_style = self.defaultTextStyle()
+        document.current_text_cursor = self.TEXT_CURSOR
+        document.image_resize_state = None
+        self.activateDocument(document)
+
+        try:
+            self.text.delete('1.0', 'end')
+            self.text.edit_reset()
+            self.displayNestedRTFStructure(rt)
+            # A loaded note starts with a clean undo and modified-state baseline.
+            self.text.edit_reset()
+            self.text.edit_modified(False)
+            document.dirty = False
+            self.captureActiveDocumentState()
+            self.updateDocumentTabTitle(document)
+        finally:
+            document.loading = False
+
+        return document
 
     def isSupportedRTF(self, rt):
         if len(rt) < 3:
@@ -2582,17 +2897,53 @@ class RTFWindow:
         return data
     
     # save an RTF file that is open
-    def saveRTF(self):
+    def writeCurrentDocument(self, show_confirmation=True):
         if self.openFile == '':
-            tk.messagebox.showerror(title='No open files to save', message='No open files to save')
-            return None
+            messagebox.showerror(title='No open files to save', message='No open files to save')
+            return False
 
         data = self.convertToRTF('1.0', 'end')
-        with open(self.openFile, 'w', encoding='utf-8') as fi:
-            fi.write(data)
-        self.search_index.update_file(self.openFile)
-        
-        tk.messagebox.showinfo(title='Saved file', message='Saved file')
+        try:
+            with open(self.openFile, 'w', encoding='utf-8') as fi:
+                fi.write(data)
+            self.search_index.update_file(self.openFile)
+        except OSError as exc:
+            messagebox.showerror('Error Saving Note', f'Could not save note: {exc}')
+            return False
+
+        if self.active_document is not None:
+            self.active_document.path = self.openFile
+            self.active_document.dirty = False
+            self.text.edit_modified(False)
+            self.captureActiveDocumentState()
+            self.updateDocumentTabTitle(self.active_document)
+        if show_confirmation:
+            messagebox.showinfo(title='Saved file', message='Saved file')
+        return True
+
+    def saveRTF(self):
+        return self.writeCurrentDocument(show_confirmation=True)
+
+    def saveAllTabs(self, event=None):
+        original_document = self.active_document
+        self.captureActiveDocumentState()
+        saved_count = 0
+        for document in list(self.open_documents_by_tab.values()):
+            if not document.path:
+                continue
+            document.dirty = bool(document.text.edit_modified())
+            self.activateDocument(document)
+            if document.dirty:
+                if not self.writeCurrentDocument(show_confirmation=False):
+                    if original_document is not None:
+                        self.activateDocument(original_document)
+                    return 'break'
+                saved_count += 1
+        if original_document is not None:
+            self.activateDocument(original_document)
+        if saved_count:
+            messagebox.showinfo('Saved files', f'Saved {saved_count} open note(s).')
+        return 'break'
     
     def createNewNode(self):
         sel = self.selected_node
@@ -2612,6 +2963,61 @@ class RTFWindow:
             fi.write(self.RTF_HEADER + '}')
         
         self.tree.insert(sel, 'end', text=newNodeName, value='', iid=self.getNextTkinterItemId())
+
+    def documentIsUnderNodePath(self, document_path, node_path):
+        document_path = self.normalizedDocumentPath(document_path)
+        node_path = self.normalizedDocumentPath(node_path)
+        if document_path == self.normalizedDocumentPath(node_path + '.rtf'):
+            return True
+        try:
+            return os.path.commonpath([node_path, document_path]) == node_path
+        except ValueError:
+            return False
+
+    def closeDocumentsUnderNodePath(self, node_path):
+        for tab_id, document in list(self.open_documents_by_tab.items()):
+            if document.path and self.documentIsUnderNodePath(document.path, node_path):
+                self.closeDocumentTab(tab_id, force=True, create_placeholder=False)
+        if not self.editor_tabs.tabs():
+            self.activateDocument(self.createDocumentTab())
+
+    def remapOpenDocumentPaths(self, old_node_path, new_node_path):
+        old_node_path = os.path.abspath(os.path.normpath(old_node_path))
+        new_node_path = os.path.abspath(os.path.normpath(new_node_path))
+        normalized_old_node_path = self.normalizedDocumentPath(old_node_path)
+        old_note_path = self.normalizedDocumentPath(old_node_path + '.rtf')
+
+        for document in list(self.open_documents_by_tab.values()):
+            if not document.path:
+                continue
+            normalized_path = self.normalizedDocumentPath(document.path)
+            if normalized_path == old_note_path:
+                new_document_path = new_node_path + '.rtf'
+            else:
+                try:
+                    is_descendant = (
+                        os.path.commonpath([normalized_old_node_path, normalized_path])
+                        == normalized_old_node_path
+                    )
+                except ValueError:
+                    is_descendant = False
+                if not is_descendant:
+                    continue
+                new_document_path = os.path.join(
+                    new_node_path,
+                    os.path.relpath(document.path, old_node_path),
+                )
+
+            self.open_documents_by_path.pop(normalized_path, None)
+            document.path = os.path.normpath(new_document_path)
+            relative_file = os.path.relpath(document.path, self._node_root_path())
+            document.relative_path = os.path.splitext(relative_file)[0]
+            self.open_documents_by_path[
+                self.normalizedDocumentPath(document.path)
+            ] = document
+            self.updateDocumentTabTitle(document)
+            if document is self.active_document:
+                self.openFile = document.path
     
     def deleteNode(self):
         parent = self.selected_node
@@ -2631,6 +3037,7 @@ class RTFWindow:
             
             shutil.rmtree(path)
             os.remove(path + '.rtf')
+            self.closeDocumentsUnderNodePath(path)
         else:
             pass
     
@@ -2647,6 +3054,7 @@ class RTFWindow:
 
         shutil.move(old_path_withnodedir, newpath)
         shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
+        self.remapOpenDocumentPaths(old_path_withnodedir, newpath)
         
         old_parent_path = os.path.dirname(os.path.normpath(old_path))
         relative_newpath = os.path.relpath(newpath, self._node_root_path())
@@ -2965,9 +3373,6 @@ class RTFWindow:
         if item in selection:
             self.tree.selection_remove(self.selected_node)
             self.selected_node = ()
-            self.text.delete('1.0', 'end')
-            self.text.edit_reset()
-            self.openFile = ''
             return None
 
 if __name__ == '__main__':

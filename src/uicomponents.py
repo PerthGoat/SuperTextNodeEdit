@@ -46,6 +46,7 @@ class ScrollableText(tk.Frame):
         self.edit_redo = text.edit_redo
         self.edit_separator = text.edit_separator
         self.edit_undo = text.edit_undo
+        self.edit_modified = text.edit_modified
         self.index = text.index
         self.compare = text.compare
         self.mark_gravity = text.mark_gravity
