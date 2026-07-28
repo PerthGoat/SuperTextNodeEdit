@@ -141,6 +141,124 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
         self.assertEqual("Hello\nWorld\n", self.window.text.get("1.0", "end"))
 
+    def test_single_click_previews_another_note_in_the_only_open_tab(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        beta = self.window.find_self("beta")
+
+        self.window.previewNodeInFirstTab(beta)
+
+        self.assertEqual((beta,), self.window.tree.selection())
+        self.assertEqual(str(self.node_dir / "beta.rtf"), self.window.openFile)
+        self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
+        self.assertEqual(1, len(self.window.editor_tabs.tabs()))
+
+    def test_canceling_single_click_preview_keeps_unsaved_note_open(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        self.window.text.insert("end-1c", " changed")
+        beta = self.window.find_self("beta")
+
+        with mock.patch.object(app.messagebox, "askyesnocancel", return_value=None):
+            self.window.previewNodeInFirstTab(beta)
+
+        self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
+        self.assertEqual("Alpha text changed", self.window.text.get("1.0", "end-1c"))
+        self.assertEqual(1, len(self.window.editor_tabs.tabs()))
+        self.assertEqual(
+            "alpha",
+            self.window.get_node_path(self.window.tree.selection()[0]),
+        )
+
+    def test_single_click_only_switches_first_tab_and_keeps_secondary_tab_pinned(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.write_node("gamma", "Gamma text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        first_document = self.window.active_document
+
+        beta = self.window.find_self("beta")
+        event = SimpleNamespace(x=10, y=20)
+        with mock.patch.object(self.window.tree, "identify", return_value=beta):
+            self.window.openNodeFromTreeDoubleClick(event)
+        pinned_document = self.window.active_document
+
+        gamma = self.window.find_self("gamma")
+        self.window.previewNodeInFirstTab(gamma)
+
+        self.assertIs(first_document, self.window.active_document)
+        self.assertEqual(str(self.node_dir / "gamma.rtf"), first_document.path)
+        self.assertEqual(str(self.node_dir / "beta.rtf"), pinned_document.path)
+        self.assertEqual(2, len(self.window.editor_tabs.tabs()))
+
+        self.window.selectDocumentTab(pinned_document)
+        self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
+
+    def test_double_click_opens_a_separate_tab_without_toggling_selection(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        beta = self.window.find_self("beta")
+        event = SimpleNamespace(x=10, y=20)
+
+        with (
+            mock.patch.object(self.window.tree, "identify", return_value=beta),
+            mock.patch.object(
+                self.window.tree.widget,
+                "identify_element",
+                return_value="Treeitem.text",
+            ),
+        ):
+            self.window.scheduleNodePreview(event)
+            self.assertIsNotNone(self.window.tree_single_click_after_id)
+            result = self.window.openNodeFromTreeDoubleClick(event)
+            self.assertIsNone(self.window.tree_single_click_after_id)
+            self.window.scheduleNodePreview(event)
+
+        self.assertEqual("break", result)
+        self.assertIsNone(self.window.tree_single_click_after_id)
+        self.assertEqual((beta,), self.window.tree.selection())
+        self.assertEqual(str(self.node_dir / "beta.rtf"), self.window.openFile)
+        self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
+        self.assertEqual(2, len(self.window.editor_tabs.tabs()))
+
+    def test_double_clicking_currently_selected_note_opens_duplicate_tab(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        alpha = self.window.find_self("alpha")
+        first_document = self.window.active_document
+        self.window.text.insert("end-1c", " changed")
+        event = SimpleNamespace(x=10, y=20)
+
+        with mock.patch.object(self.window.tree, "identify", return_value=alpha):
+            result = self.window.openNodeFromTreeDoubleClick(event)
+
+        second_document = self.window.active_document
+        self.assertEqual("break", result)
+        self.assertIsNot(first_document, second_document)
+        self.assertEqual(first_document.path, second_document.path)
+        self.assertEqual(2, len(self.window.editor_tabs.tabs()))
+        self.assertEqual("Alpha text changed", self.window.text.get("1.0", "end-1c"))
+        self.assertTrue(second_document.dirty)
+        self.assertTrue(
+            self.window.editor_tabs.tab(second_document.tab_id, "text").startswith("* ")
+        )
+
+        self.window.closeDocumentTab(second_document.tab_id, force=True)
+        self.assertEqual(
+            first_document,
+            self.window.open_documents_by_path[
+                self.window.normalizedDocumentPath(first_document.path)
+            ],
+        )
+
     def test_opening_multiple_nodes_creates_tabs_and_preserves_unsaved_edits(self):
         self.write_node("alpha", "Alpha text")
         self.write_node("beta", "Beta text")

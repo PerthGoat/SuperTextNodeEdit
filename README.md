@@ -35,9 +35,11 @@ notes is only a rebuildable cache: it stores paths, file signatures, and hashed
 n-grams rather than a second plaintext copy of note contents.
 
 ## Working with tabs
-Selecting a note opens it in an editor tab, so several notes can remain open at
-the same time. Selecting an already-open note switches to its existing tab.
-Each tab keeps its own unsaved edits and undo history.
+Double-clicking a note opens it in an editor tab, so several notes can remain
+open at the same time. A single click previews the note in the first (leftmost)
+tab without creating another tab; the remaining tabs stay pinned to their
+notes. Every double-click creates a separate tab, even when that note is
+already open. Each tab keeps its own unsaved edits and undo history.
 
 Use **Ctrl+W** to close the current tab and **Ctrl+Shift+S** to save all modified
 tabs. Tabs can also be closed with the middle mouse button or their right-click

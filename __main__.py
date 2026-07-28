@@ -84,6 +84,7 @@ class OpenDocument:
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
     ACTION_QUEUE_POLL_MS = 10
+    TREE_SINGLE_CLICK_DELAY_MS = 400
     FORMAT_TAG_PREFIX = "rtf_style_"
     ALIGNMENT_TAG_PREFIX = "rtf_alignment_"
     TABLE_TAG_PREFIX = "rtf_table_"
@@ -143,6 +144,8 @@ class RTFWindow:
         self.search_results = {}
         self.rename_entry = None
         self.move_source_node = None
+        self.tree_single_click_after_id = None
+        self.ignore_next_tree_release = False
         self.open_documents_by_tab = {}
         self.open_documents_by_path = {}
         self.active_document = None
@@ -168,6 +171,7 @@ class RTFWindow:
         self.window.grid_rowconfigure(0, weight=1) # for responsive-resize
         original_destroy = self.window.destroy
         def destroyWindow():
+            self.cancelPendingNodePreview()
             self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
@@ -236,12 +240,10 @@ class RTFWindow:
         
         # bind a callback for horizontal scroll adjustment
         self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(3, lambda : self.treeOpenClose(e), "treeOpenClose")))
-        # selecting a node will load it from a source file
-        self.tree.bind('<<TreeviewSelect>>', lambda e: self.actionQueue.put(PrioritizedItem(5, lambda : self.tryReadShowRTF(e), "tryReadShowRTF")), add='+')
-        
-        # double click toggles selection on and off, to allow for making new root nodes
-        # this makes sense to run before showing the RTF file. in practice it seems like it gets into the queue first so runs first anyways
-        self.tree.bind('<Double-1>', lambda e: [self.actionQueue.put(PrioritizedItem(4, lambda : self.treeSelectUnselect(e), "treeSelectUnselect")), 'break'][1])
+        # Delay a single-click preview long enough to distinguish it from a
+        # double-click, which explicitly opens a separate tab.
+        self.tree.bind('<ButtonRelease-1>', self.scheduleNodePreview, add='+')
+        self.tree.bind('<Double-1>', self.openNodeFromTreeDoubleClick)
 
         # bind a callback for treeview open so that lazy loading is possible
         # this is lower priority than lazyUnload so then it always will run after lazyUnload if they are both in the queue
@@ -346,7 +348,7 @@ class RTFWindow:
         )
         self.open_documents_by_tab[tab_id] = document
         if path:
-            self.open_documents_by_path[self.normalizedDocumentPath(path)] = document
+            self.registerOpenDocumentPath(document)
         self.editor_tabs.add(editor, text=self.documentTabTitle(document))
         editor.edit_modified(False)
         return document
@@ -355,6 +357,35 @@ class RTFWindow:
         if not path:
             return ''
         return os.path.normcase(os.path.abspath(os.path.normpath(path)))
+
+    def registerOpenDocumentPath(self, document):
+        if document.path:
+            self.open_documents_by_path[
+                self.normalizedDocumentPath(document.path)
+            ] = document
+        return document
+
+    def unregisterOpenDocumentPath(self, document, path=None):
+        normalized_path = self.normalizedDocumentPath(path or document.path)
+        if not normalized_path:
+            return None
+        if self.open_documents_by_path.get(normalized_path) is not document:
+            return None
+
+        replacement = next(
+            (
+                candidate
+                for candidate in reversed(list(self.open_documents_by_tab.values()))
+                if candidate is not document
+                and self.normalizedDocumentPath(candidate.path) == normalized_path
+            ),
+            None,
+        )
+        if replacement is None:
+            self.open_documents_by_path.pop(normalized_path, None)
+        else:
+            self.open_documents_by_path[normalized_path] = replacement
+        return replacement
 
     def documentTabTitle(self, document):
         if document.relative_path:
@@ -394,6 +425,7 @@ class RTFWindow:
     def activateDocument(self, document, select_tab=True):
         if document is None:
             return None
+        self.cancelPendingNodePreview()
         if self.active_document is not document:
             self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
@@ -517,7 +549,7 @@ class RTFWindow:
                     return False
 
         if document.path:
-            self.open_documents_by_path.pop(self.normalizedDocumentPath(document.path), None)
+            self.unregisterOpenDocumentPath(document)
         self.open_documents_by_tab.pop(tab_id, None)
         if document is self.active_document:
             self.active_document = None
@@ -563,6 +595,80 @@ class RTFWindow:
         finally:
             self.node_context_menu.grab_release()
 
+        return 'break'
+
+    def cancelPendingNodePreview(self):
+        if self.tree_single_click_after_id is not None:
+            try:
+                self.window.after_cancel(self.tree_single_click_after_id)
+            except tk.TclError:
+                pass
+            self.tree_single_click_after_id = None
+        return None
+
+    def scheduleNodePreview(self, event):
+        if self.ignore_next_tree_release:
+            self.ignore_next_tree_release = False
+            return None
+
+        try:
+            if self.tree.widget.identify_element(event.x, event.y) == 'Treeitem.indicator':
+                return None
+        except tk.TclError:
+            return None
+
+        node = self.tree.identify('item', event.x, event.y)
+        if not node:
+            return None
+
+        self.cancelPendingNodePreview()
+        self.tree_single_click_after_id = self.window.after(
+            self.TREE_SINGLE_CLICK_DELAY_MS,
+            lambda selected_node=node: self.previewNodeInFirstTab(selected_node),
+        )
+        return None
+
+    def previewNodeInFirstTab(self, node):
+        self.tree_single_click_after_id = None
+        try:
+            self.tree.item(node)
+        except tk.TclError:
+            return None
+
+        tabs = self.editor_tabs.tabs()
+        if not tabs:
+            return None
+        first_document = self.open_documents_by_tab.get(tabs[0])
+        if first_document is None:
+            return None
+        self.activateDocument(first_document)
+
+        self.tree.selection_set(node)
+        self.tree.focus(item=node)
+        self.selected_node = node
+        return self.tryReadShowRTF(
+            None,
+            open_in_new_tab=False,
+            reuse_open_tab=False,
+        )
+
+    def openNodeFromTreeDoubleClick(self, event):
+        self.cancelPendingNodePreview()
+        # The second button release belongs to this double-click and must not
+        # schedule a single-click preview afterward.
+        self.ignore_next_tree_release = True
+        node = self.tree.identify('item', event.x, event.y)
+        if not node:
+            return None
+
+        self.tree.selection_set(node)
+        self.tree.focus(item=node)
+        self.selected_node = node
+        self.tryReadShowRTF(
+            event,
+            open_in_new_tab=True,
+            force_new_tab=True,
+        )
         return 'break'
 
     def showTextContextMenu(self, event):
@@ -2544,7 +2650,31 @@ class RTFWindow:
             return None
         return self.createEmbeddedFile(insertion_index, filename, data)
 
-    def tryReadShowRTF(self, event): # event is not used
+    def confirmDocumentReplacement(self, document):
+        self.captureActiveDocumentState()
+        if not document.dirty:
+            return True
+
+        answer = messagebox.askyesnocancel(
+            'Save changes?',
+            f'Save changes to {self.documentTabTitle(document).lstrip("* ")} before viewing another note?',
+        )
+        if answer is None:
+            if document.relative_path:
+                self.selectNodePath(document.relative_path, open_document=False)
+            return False
+        if answer:
+            self.activateDocument(document)
+            return self.writeCurrentDocument(show_confirmation=False)
+        return True
+
+    def tryReadShowRTF(
+        self,
+        event,
+        open_in_new_tab=True,
+        force_new_tab=False,
+        reuse_open_tab=True,
+    ): # event is not used
         selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
         
         if len(selection) == 0: # if nothing is selected
@@ -2557,20 +2687,38 @@ class RTFWindow:
         
         node_path = self.resolveNodePath(sel_path) + '.rtf'
         normalized_path = self.normalizedDocumentPath(node_path)
+        active_document_matches = (
+            self.active_document is not None
+            and self.normalizedDocumentPath(self.active_document.path) == normalized_path
+        )
+        if active_document_matches and not force_new_tab:
+            return self.active_document
+
         open_document = self.open_documents_by_path.get(normalized_path)
-        if open_document is not None:
+        if open_document is not None and reuse_open_tab and not force_new_tab:
             self.selectDocumentTab(open_document)
             return open_document
-        
-        try:
-            with open(node_path, 'r', encoding='utf-8') as fi:
-                data = fi.read()
-        except UnicodeDecodeError:
-            with open(node_path, 'r') as fi:
-                data = fi.read()
-        except OSError as exc:
-            messagebox.showerror('Error Reading Node', f'Could not read node file: {exc}')
-            return None
+
+        cloned_modified_document = False
+        active_document_matches = (
+            force_new_tab
+            and self.active_document is not None
+            and self.normalizedDocumentPath(self.active_document.path) == normalized_path
+        )
+        if active_document_matches:
+            self.captureActiveDocumentState()
+            data = self.convertToRTF('1.0', 'end')
+            cloned_modified_document = self.active_document.dirty
+        else:
+            try:
+                with open(node_path, 'r', encoding='utf-8') as fi:
+                    data = fi.read()
+            except UnicodeDecodeError:
+                with open(node_path, 'r') as fi:
+                    data = fi.read()
+            except OSError as exc:
+                messagebox.showerror('Error Reading Node', f'Could not read node file: {exc}')
+                return None
 
         # parse the RTF using the RTF parser
         try:
@@ -2590,12 +2738,19 @@ class RTFWindow:
             and not document.path
             and self.text.get('1.0', 'end-1c') == ''
         )
-        if not can_reuse_placeholder:
+        if open_in_new_tab and not can_reuse_placeholder:
             document = self.createDocumentTab(node_path, sel_path)
         else:
+            if document is None:
+                document = self.createDocumentTab()
+            elif document.path and not self.confirmDocumentReplacement(document):
+                return None
+
+            if document.path:
+                self.unregisterOpenDocumentPath(document)
             document.path = node_path
             document.relative_path = sel_path
-            self.open_documents_by_path[normalized_path] = document
+            self.registerOpenDocumentPath(document)
 
         document.loading = True
         document.tkinter_imagelist = []
@@ -2623,6 +2778,12 @@ class RTFWindow:
             self.updateDocumentTabTitle(document)
         finally:
             document.loading = False
+
+        if cloned_modified_document:
+            self.text.edit_modified(True)
+            document.dirty = True
+            self.captureActiveDocumentState()
+            self.updateDocumentTabTitle(document)
 
         return document
 
@@ -3008,13 +3169,11 @@ class RTFWindow:
                     os.path.relpath(document.path, old_node_path),
                 )
 
-            self.open_documents_by_path.pop(normalized_path, None)
+            self.unregisterOpenDocumentPath(document)
             document.path = os.path.normpath(new_document_path)
             relative_file = os.path.relpath(document.path, self._node_root_path())
             document.relative_path = os.path.splitext(relative_file)[0]
-            self.open_documents_by_path[
-                self.normalizedDocumentPath(document.path)
-            ] = document
+            self.registerOpenDocumentPath(document)
             self.updateDocumentTabTitle(document)
             if document is self.active_document:
                 self.openFile = document.path
@@ -3106,6 +3265,7 @@ class RTFWindow:
         source = self.move_source_node
         if source is None:
             return None
+        self.ignore_next_tree_release = True
 
         destination = self.tree.identify('item', event.x, event.y)
         if not destination:
@@ -3361,19 +3521,6 @@ class RTFWindow:
             self.selected_node = self.tree.get_children()[0]
             self.tree.selection_set(self.selected_node) # default select first thing in tree
             self.tree.focus(item=self.selected_node) # focus as well
-
-
-    # selects and unselects things on the tree that are clicked on
-    def treeSelectUnselect(self, e): # event is used in this one
-        selection = self.selected_node
-        if len(selection) == 0: # if nothing is selected
-            return None
-        
-        item = self.tree.identify('item', e.x, e.y) # get item clicked on in tree
-        if item in selection:
-            self.tree.selection_remove(self.selected_node)
-            self.selected_node = ()
-            return None
 
 if __name__ == '__main__':
     dev_version_number = 1.15
