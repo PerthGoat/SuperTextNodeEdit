@@ -34,6 +34,13 @@ reparsed on every search. The hidden `.supertext-search.sqlite3` file beside the
 notes is only a rebuildable cache: it stores paths, file signatures, and hashed
 n-grams rather than a second plaintext copy of note contents.
 
+## Hyperlinks
+
+Highlight text and choose **Insert → Hyperlink...** or press **Ctrl+K**. A link
+can open another node in the current notebook, a website or other registered
+URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
+text copy and paste.
+
 ## Archiving notes
 
 Select a note and use **Nodes → Archive** (or right-click it and choose

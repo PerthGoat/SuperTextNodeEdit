@@ -3,7 +3,7 @@
 # Chosen because Tkinter is shipped standard with Python and does not require GTK
 # or anything complex to get it running
 import tkinter as tk
-from tkinter import colorchooser, messagebox, font, simpledialog, ttk
+from tkinter import colorchooser, filedialog, messagebox, font, simpledialog, ttk
 
 # threading
 # used for action queue
@@ -19,8 +19,11 @@ import glob
 import hashlib
 import shutil
 import struct
+import subprocess
+import sys
 import tempfile
 import threading
+from pathlib import Path
 
 import configparser
 import re
@@ -74,6 +77,8 @@ class OpenDocument:
     style_tags: dict = field(default_factory=dict)
     style_tag_names: dict = field(default_factory=dict)
     style_tag_counter: int = 0
+    hyperlink_tags: dict = field(default_factory=dict)
+    hyperlink_tag_counter: int = 0
     typing_style: dict = field(default_factory=lambda: {
         "font_family": "Consolas",
         "font_size": 12,
@@ -96,6 +101,7 @@ class RTFWindow:
     FORMAT_TAG_PREFIX = "rtf_style_"
     ALIGNMENT_TAG_PREFIX = "rtf_alignment_"
     TABLE_TAG_PREFIX = "rtf_table_"
+    HYPERLINK_TAG_PREFIX = "rtf_hyperlink_"
     DEFAULT_FONT_FAMILY = "Consolas"
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
@@ -141,6 +147,8 @@ class RTFWindow:
         self.style_tags = {}
         self.style_tag_names = {}
         self.style_tag_counter = 0
+        self.hyperlink_tags = {}
+        self.hyperlink_tag_counter = 0
         self.typing_style = self.defaultTextStyle()
         self.toolbar_style_after_id = None
         self.center_layout_after_id = None
@@ -289,6 +297,11 @@ class RTFWindow:
         self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
         self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
         self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
+        self.text_context_menu.add_separator()
+        self.text_context_menu.add_command(
+            label='Insert Hyperlink...',
+            command=self.showInsertHyperlinkDialog,
+        )
 
         initial_document = self.createDocumentTab()
         self.activateDocument(initial_document)
@@ -324,6 +337,8 @@ class RTFWindow:
         editor.bind('<Control-Y>', self.redoDocument)
         editor.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
         editor.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
+        editor.bind('<Control-k>', self.showInsertHyperlinkDialog)
+        editor.bind('<Control-K>', self.showInsertHyperlinkDialog)
         editor.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
         editor.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         editor.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
@@ -429,6 +444,8 @@ class RTFWindow:
         document.style_tags = self.style_tags
         document.style_tag_names = self.style_tag_names
         document.style_tag_counter = self.style_tag_counter
+        document.hyperlink_tags = self.hyperlink_tags
+        document.hyperlink_tag_counter = self.hyperlink_tag_counter
         document.typing_style = self.typing_style.copy()
         document.current_text_cursor = self.current_text_cursor
         document.image_resize_state = self.image_resize_state
@@ -460,6 +477,8 @@ class RTFWindow:
         self.style_tags = document.style_tags
         self.style_tag_names = document.style_tag_names
         self.style_tag_counter = document.style_tag_counter
+        self.hyperlink_tags = document.hyperlink_tags
+        self.hyperlink_tag_counter = document.hyperlink_tag_counter
         self.typing_style = document.typing_style.copy()
         self.current_text_cursor = document.current_text_cursor
         self.image_resize_state = document.image_resize_state
@@ -488,6 +507,8 @@ class RTFWindow:
         document.style_tags = {}
         document.style_tag_names = {}
         document.style_tag_counter = 0
+        document.hyperlink_tags = {}
+        document.hyperlink_tag_counter = 0
         document.typing_style = self.defaultTextStyle()
         document.current_text_cursor = self.TEXT_CURSOR
         document.image_resize_state = None
@@ -791,6 +812,10 @@ class RTFWindow:
         selection_state = 'normal' if has_selection else 'disabled'
         self.text_context_menu.entryconfigure('Cut', state=selection_state)
         self.text_context_menu.entryconfigure('Copy', state=selection_state)
+        self.text_context_menu.entryconfigure(
+            'Insert Hyperlink...',
+            state=selection_state,
+        )
         self.text.focus_set()
 
         try:
@@ -844,6 +869,11 @@ class RTFWindow:
         menu_bar.add_cascade(label='Nodes', menu=node_menu)
 
         insert_menu = tk.Menu(menu_bar, tearoff=False)
+        insert_menu.add_command(
+            label='Hyperlink...',
+            accelerator='Ctrl+K',
+            command=self.showInsertHyperlinkDialog,
+        )
         insert_menu.add_command(label='Table...', command=self.showInsertTableDialog)
         menu_bar.add_cascade(label='Insert', menu=insert_menu)
 
@@ -2172,6 +2202,270 @@ class RTFWindow:
 
         return self.applyStylePropertyToSelection("color", selected_color[1])
 
+    def availableNodePaths(self):
+        """Return every note path without depending on lazy tree expansion."""
+        root = self._node_root_path()
+        paths = []
+        for directory, _subdirectories, filenames in os.walk(root):
+            for filename in filenames:
+                if not filename.lower().endswith('.rtf'):
+                    continue
+                full_path = os.path.join(directory, filename)
+                relative_path = os.path.relpath(full_path, root)
+                paths.append(os.path.splitext(relative_path)[0])
+        return sorted(paths, key=str.casefold)
+
+    def hyperlinkTagAt(self, index):
+        return next(
+            (
+                tag
+                for tag in self.text.tag_names(index)
+                if tag in self.hyperlink_tags
+            ),
+            None,
+        )
+
+    def hyperlinkCoveringRange(self, start, finish):
+        """Return one link tag only when it covers the complete selection."""
+        for tag in self.text.tag_names(start):
+            if tag not in self.hyperlink_tags:
+                continue
+            ranges = list(self.text.tag_ranges(tag))
+            for range_start, range_finish in zip(ranges[0::2], ranges[1::2]):
+                if (
+                    self.text.compare(range_start, '<=', start)
+                    and self.text.compare(range_finish, '>=', finish)
+                ):
+                    return tag
+        return None
+
+    def removeHyperlinksFromRange(self, start, finish):
+        for tag in list(self.hyperlink_tags):
+            ranges = list(self.text.tag_ranges(tag))
+            overlaps = any(
+                self.text.compare(range_start, '<', finish)
+                and self.text.compare(range_finish, '>', start)
+                for range_start, range_finish in zip(
+                    ranges[0::2],
+                    ranges[1::2],
+                )
+            )
+            if overlaps:
+                self.text.tag_remove(tag, start, finish)
+            if not self.text.tag_ranges(tag):
+                self.hyperlink_tags.pop(tag, None)
+                self.text.tag_delete(tag)
+
+    def createHyperlinkTag(self, kind, target):
+        tag = f'{self.HYPERLINK_TAG_PREFIX}{self.hyperlink_tag_counter}'
+        self.hyperlink_tag_counter += 1
+        link = {
+            'kind': kind if kind in {'node', 'url', 'file'} else 'url',
+            'target': target,
+        }
+        self.hyperlink_tags[tag] = link
+        self.text.tag_configure(tag, foreground='#0563c1', underline=True)
+        self.text.tag_bind(
+            tag,
+            '<Enter>',
+            lambda _event: self.configureTextCursor('hand2'),
+        )
+        self.text.tag_bind(
+            tag,
+            '<Leave>',
+            lambda _event: self.configureTextCursor(self.TEXT_CURSOR),
+        )
+        self.text.tag_bind(
+            tag,
+            '<Button-1>',
+            lambda _event, link_tag=tag: self.activateHyperlinkTag(link_tag),
+        )
+        return tag
+
+    def applyHyperlinkToRange(self, start, finish, kind, target):
+        kind = kind if kind in {'node', 'url', 'file'} else 'url'
+        target = target.strip()
+        if not target:
+            return None
+        if kind == 'node':
+            target = os.path.normpath(target).replace(os.sep, '/')
+
+        self.removeHyperlinksFromRange(start, finish)
+        tag = self.createHyperlinkTag(kind, target)
+        self.text.tag_add(tag, start, finish)
+        self.markCurrentDocumentModified()
+        return tag
+
+    def activateHyperlinkTag(self, tag):
+        link = self.hyperlink_tags.get(tag)
+        if link is None:
+            return 'break'
+        return self.activateHyperlink(link['kind'], link['target'])
+
+    def activateHyperlink(self, kind, target):
+        if kind == 'node':
+            relative_path = os.path.normpath(target.replace('/', os.sep))
+            if self.selectNodePath(relative_path) is None:
+                messagebox.showerror(
+                    'Note not found',
+                    f'The linked note no longer exists:\n{relative_path}',
+                )
+            return 'break'
+
+        try:
+            if os.name == 'nt':
+                os.startfile(target)
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', target])
+            else:
+                subprocess.Popen(['xdg-open', target])
+        except (AttributeError, OSError) as exc:
+            messagebox.showerror(
+                'Could not open hyperlink',
+                f'{target}\n\n{exc}',
+            )
+        return 'break'
+
+    def showInsertHyperlinkDialog(self, event=None):
+        selected_range = self.selectedTextRange(show_error=True)
+        if selected_range is None:
+            return 'break' if event is not None else None
+
+        if self.UI_popup is not None:
+            self.UI_popup.lift()
+            return 'break' if event is not None else None
+
+        start, finish = selected_range
+        existing_tag = self.hyperlinkCoveringRange(start, finish)
+        existing_link = self.hyperlink_tags.get(existing_tag, {})
+
+        self.UI_popup = (link_win := tk.Toplevel(self.window))
+        link_win.title('Insert Hyperlink')
+        link_win.geometry('520x235')
+        link_win.resizable(True, False)
+        link_win.transient(self.window)
+        link_win.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
+        link_win.grid_columnconfigure(0, weight=1)
+
+        kind_var = tk.StringVar(value=existing_link.get('kind', 'url'))
+        target_var = tk.StringVar(value=existing_link.get('target', ''))
+        node_paths = self.availableNodePaths()
+        display_node_paths = [
+            path.replace(os.sep, '/')
+            for path in node_paths
+        ]
+        if kind_var.get() == 'node' and target_var.get():
+            target_var.set(target_var.get().replace(os.sep, '/'))
+
+        type_frame = ttk.LabelFrame(link_win, text='Link to', padding=8)
+        type_frame.grid(row=0, column=0, sticky='ew', padx=12, pady=(12, 6))
+        for column in range(3):
+            type_frame.grid_columnconfigure(column, weight=1)
+        ttk.Radiobutton(
+            type_frame,
+            text='Notebook node',
+            variable=kind_var,
+            value='node',
+        ).grid(row=0, column=0, sticky='w')
+        ttk.Radiobutton(
+            type_frame,
+            text='Website or other URL',
+            variable=kind_var,
+            value='url',
+        ).grid(row=0, column=1, sticky='w')
+        ttk.Radiobutton(
+            type_frame,
+            text='File URL',
+            variable=kind_var,
+            value='file',
+        ).grid(row=0, column=2, sticky='w')
+
+        target_frame = ttk.Frame(link_win, padding=(12, 6))
+        target_frame.grid(row=1, column=0, sticky='ew')
+        target_frame.grid_columnconfigure(1, weight=1)
+        ttk.Label(target_frame, text='Destination:').grid(
+            row=0,
+            column=0,
+            sticky='w',
+            padx=(0, 8),
+        )
+        node_combo = ttk.Combobox(
+            target_frame,
+            values=display_node_paths,
+            textvariable=target_var,
+            state='readonly',
+        )
+        target_entry = ttk.Entry(target_frame, textvariable=target_var)
+        browse_button = ttk.Button(target_frame, text='Browse...')
+
+        hint_var = tk.StringVar()
+        ttk.Label(
+            link_win,
+            textvariable=hint_var,
+            foreground='#555555',
+        ).grid(row=2, column=0, sticky='w', padx=14)
+
+        def browse_for_file():
+            filename = filedialog.askopenfilename(parent=link_win)
+            if filename:
+                target_var.set(Path(filename).resolve().as_uri())
+
+        browse_button.configure(command=browse_for_file)
+
+        def show_target_control(*_args):
+            node_combo.grid_forget()
+            target_entry.grid_forget()
+            browse_button.grid_forget()
+            if kind_var.get() == 'node':
+                node_combo.grid(row=0, column=1, sticky='ew')
+                hint_var.set('Choose a note in this notebook.')
+                if target_var.get() not in display_node_paths:
+                    target_var.set(display_node_paths[0] if display_node_paths else '')
+            else:
+                target_entry.grid(row=0, column=1, sticky='ew')
+                if kind_var.get() == 'file':
+                    browse_button.grid(row=0, column=2, padx=(8, 0))
+                    hint_var.set('Use Browse, a file:// URL, or a path your computer can open.')
+                else:
+                    hint_var.set('Examples: https://example.com, mailto:name@example.com')
+                target_entry.focus_set()
+
+        kind_var.trace_add('write', show_target_control)
+        show_target_control()
+
+        button_frame = ttk.Frame(link_win, padding=12)
+        button_frame.grid(row=3, column=0, sticky='e')
+
+        def apply_link():
+            target = target_var.get().strip()
+            if not target:
+                messagebox.showerror(
+                    'Destination required',
+                    'Choose or enter a hyperlink destination.',
+                    parent=link_win,
+                )
+                return None
+            self.applyHyperlinkToRange(
+                start,
+                finish,
+                kind_var.get(),
+                target,
+            )
+            self.killUIPopup()
+            self.text.focus_set()
+            return 'break'
+
+        ttk.Button(button_frame, text='Cancel', command=self.killUIPopup).pack(
+            side='right',
+        )
+        ttk.Button(button_frame, text='Insert', command=apply_link).pack(
+            side='right',
+            padx=(0, 8),
+        )
+        link_win.bind('<Return>', lambda _event: apply_link())
+        link_win.bind('<Escape>', lambda _event: self.killUIPopup())
+        return 'break' if event is not None else link_win
+
     def showInsertTableDialog(self):
         if self.UI_popup is not None:
             self.UI_popup.lift()
@@ -2489,6 +2783,18 @@ class RTFWindow:
                 found = self.findRTFGroup(token, command)
                 if found is not None:
                     return found
+        return None
+
+    def findRTFGroupWithDirectCommand(self, structure, command):
+        r"""Find a group even when ``\*`` precedes its destination command."""
+        for token in structure:
+            if not isinstance(token, list):
+                continue
+            if self.hasDirectRTFCommand(token, command):
+                return token
+            found = self.findRTFGroupWithDirectCommand(token, command)
+            if found is not None:
+                return found
         return None
 
     def parseRTFFontTable(self, structure):
@@ -3055,6 +3361,13 @@ class RTFWindow:
         if first_command == 'pict':
             return self.displayRTFImageGroup(structure, insertion_index)
 
+        if self.hasDirectRTFCommand(structure, 'supertextlink'):
+            return self.displayRTFHyperlinkGroup(
+                structure,
+                style,
+                insertion_index,
+            )
+
         if self.hasDirectRTFCommand(structure, 'supertextfile'):
             return self.displayRTFFileGroup(structure, insertion_index)
 
@@ -3086,6 +3399,8 @@ class RTFWindow:
     def customRTFGroupValue(self, structure, command):
         group = self.findRTFGroup(structure, command)
         if group is None:
+            group = self.findRTFGroupWithDirectCommand(structure, command)
+        if group is None:
             return ''
         return ''.join(
             value for kind, value in self.flattenRTFTokens(group)
@@ -3100,6 +3415,48 @@ class RTFWindow:
             print(f'Could not decode embedded file: {exc}')
             return None
         return self.createEmbeddedFile(insertion_index, filename, data)
+
+    def displayRTFHyperlinkGroup(self, structure, style, insertion_index='end'):
+        display_group = self.findRTFGroup(structure, 'supertextdisplay')
+        if display_group is None:
+            return None
+
+        if insertion_index == 'end':
+            start = self.text.index('end-1c')
+        else:
+            start = self.text.index(insertion_index)
+
+        # Always retain the visible text if metadata from a damaged or newer
+        # link group cannot be decoded.
+        self._displayNestedRTFStructure(
+            display_group,
+            style.copy(),
+            insertion_index,
+        )
+        if insertion_index == 'end':
+            finish = self.text.index('end-1c')
+        else:
+            finish = self.text.index(insertion_index)
+
+        try:
+            kind_hex = self.customRTFGroupValue(
+                structure,
+                'supertextlinktype',
+            )
+            target_hex = self.customRTFGroupValue(
+                structure,
+                'supertexttarget',
+            )
+            kind = bytes.fromhex(kind_hex).decode('utf-8')
+            target = bytes.fromhex(target_hex).decode('utf-8')
+        except (ValueError, UnicodeDecodeError):
+            return None
+
+        if self.text.compare(start, '<', finish) and target:
+            tag = self.createHyperlinkTag(kind, target)
+            self.text.tag_add(tag, start, finish)
+            return tag
+        return None
 
     def confirmDocumentReplacement(self, document):
         self.captureActiveDocumentState()
@@ -3214,6 +3571,8 @@ class RTFWindow:
         document.style_tags = {}
         document.style_tag_names = {}
         document.style_tag_counter = 0
+        document.hyperlink_tags = {}
+        document.hyperlink_tag_counter = 0
         document.typing_style = self.defaultTextStyle()
         document.current_text_cursor = self.TEXT_CURSOR
         document.image_resize_state = None
@@ -3338,13 +3697,35 @@ class RTFWindow:
                 style.update(self.style_tags[tag])
         return style
 
-    def convertDumpToRTFBody(self, textContents, initial_style_tags=None):
+    def hyperlinkRTFGroupPrefix(self, link):
+        kind_hex = link['kind'].encode('utf-8').hex()
+        target_hex = link['target'].encode('utf-8').hex()
+        return (
+            r'{\supertextlink'
+            r'{\*\supertextlinktype ' + kind_hex + '}'
+            r'{\*\supertexttarget ' + target_hex + '}'
+            r'{\supertextdisplay '
+        )
+
+    def convertDumpToRTFBody(
+        self,
+        textContents,
+        initial_style_tags=None,
+        initial_hyperlink_tags=None,
+    ):
         body = ''
         font_ids = {self.DEFAULT_FONT_FAMILY: 0}
         color_ids = {}
         active_style_tags = list(initial_style_tags or [])
+        active_hyperlink_tags = list(initial_hyperlink_tags or [])
         active_padding_tags = []
         has_formatting = False
+
+        for tag in active_hyperlink_tags:
+            link = self.hyperlink_tags.get(tag)
+            if link is not None:
+                body += self.hyperlinkRTFGroupPrefix(link)
+                has_formatting = True
 
         for token_type, token_value, _ in textContents:
             if token_type == 'tagon' and self.isAlignmentPaddingTag(token_value):
@@ -3366,6 +3747,28 @@ class RTFWindow:
 
             if token_type == 'tagoff' and token_value in active_style_tags:
                 active_style_tags.remove(token_value)
+                continue
+
+            if token_type == 'tagon' and token_value in self.hyperlink_tags:
+                if token_value not in active_hyperlink_tags:
+                    # Tk can report an adjacent range's ``tagon`` before the
+                    # previous range's ``tagoff`` at the same character.
+                    # Normalize that boundary so custom link groups never
+                    # become accidentally nested.
+                    body += '}}' * len(active_hyperlink_tags)
+                    active_hyperlink_tags.clear()
+                    body += self.hyperlinkRTFGroupPrefix(
+                        self.hyperlink_tags[token_value]
+                    )
+                    active_hyperlink_tags.append(token_value)
+                    has_formatting = True
+                continue
+
+            if token_type == 'tagoff' and token_value in active_hyperlink_tags:
+                # Hyperlinks created by the editor do not overlap. Closing the
+                # active custom group here preserves the exact tagged range.
+                active_hyperlink_tags.remove(token_value)
+                body += '}}'
                 continue
 
             if token_type == 'image':
@@ -3405,6 +3808,7 @@ class RTFWindow:
             else:
                 body += text
 
+        body += '}}' * len(active_hyperlink_tags)
         return body, font_ids, color_ids, has_formatting
 
     def rangeHasFormatting(self, start, finish):
@@ -3501,11 +3905,16 @@ class RTFWindow:
             tag for tag in self.text.tag_names(start)
             if tag in self.style_tags
         ]
+        initial_hyperlink_tags = [
+            tag for tag in self.text.tag_names(start)
+            if tag in self.hyperlink_tags
+        ]
         textContents = self.text.dump(start, finish)
 
         body, font_ids, color_ids, has_formatting = self.convertDumpToRTFBody(
             textContents,
             initial_style_tags,
+            initial_hyperlink_tags,
         )
 
         if has_formatting or color_ids or len(font_ids) > 1:

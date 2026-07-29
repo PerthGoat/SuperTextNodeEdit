@@ -43,6 +43,15 @@ def rtf_to_plain_text(rtf_data: str) -> str:
             return
         if _has_direct_command(group, "supertextfile"):
             return
+        if _has_direct_command(group, "supertextlink"):
+            for child in group:
+                if (
+                    isinstance(child, list)
+                    and _has_direct_command(child, "supertextdisplay")
+                ):
+                    visit(child)
+                    break
+            return
 
         for token in group:
             if isinstance(token, list):

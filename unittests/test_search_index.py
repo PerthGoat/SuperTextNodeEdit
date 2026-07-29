@@ -31,7 +31,12 @@ class TestNoteSearchIndex(unittest.TestCase):
             + r"Before{\par }After "
             + r"{\pict\pngblip 414243} "
             + r"{\supertextfile{\supertextfilename 666f6f}"
-            + r"{\supertextdata 736563726574}}}"
+            + r"{\supertextdata 736563726574}}"
+            + r"{\supertextlink"
+            + r"{\*\supertextlinktype 75726c}"
+            + r"{\*\supertexttarget 68747470733a2f2f7365637265742e6578616d706c65}"
+            + r"{\supertextdisplay Visible link}}"
+            + "}"
         )
 
         text = rtf_to_plain_text(rtf)
@@ -40,6 +45,8 @@ class TestNoteSearchIndex(unittest.TestCase):
         self.assertNotIn("Consolas", text)
         self.assertNotIn("414243", text)
         self.assertNotIn("736563726574", text)
+        self.assertIn("Visible link", text)
+        self.assertNotIn("68747470733a", text)
 
     def test_search_finds_case_insensitive_substrings_in_nested_notes(self):
         self.write_note("alpha.rtf", "A searchable HayStack value")

@@ -886,6 +886,133 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(r"Hello ", rtf)
         self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
+    def test_hyperlink_round_trips_target_and_visible_text(self):
+        self.window.text.insert("1.0", "Read the docs")
+
+        tag = self.window.applyHyperlinkToRange(
+            "1.5",
+            "1.13",
+            "url",
+            "https://example.com/docs?topic=rtf#links",
+        )
+        exported = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"\supertextlink", exported)
+        self.assertNotIn("https://example.com/docs", exported)
+        self.assertEqual(
+            "https://example.com/docs?topic=rtf#links",
+            self.window.hyperlink_tags[tag]["target"],
+        )
+
+        self.window.text.delete("1.0", "end")
+        self.window.hyperlink_tags = {}
+        self.window.hyperlink_tag_counter = 0
+        self.window.displayNestedRTFStructure(app.RTFParser(exported).parseme())
+
+        restored_tag = self.window.hyperlinkTagAt("1.6")
+        self.assertIsNotNone(restored_tag)
+        self.assertEqual(
+            {
+                "kind": "url",
+                "target": "https://example.com/docs?topic=rtf#links",
+            },
+            self.window.hyperlink_tags[restored_tag],
+        )
+        self.assertEqual(
+            "Read the docs",
+            self.window.text.get("1.0", "end-1c"),
+        )
+
+    def test_hyperlink_rich_text_paste_tags_the_inserted_range(self):
+        self.window.text.insert("1.0", "Link")
+        self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.4",
+            "url",
+            "mailto:test@example.com",
+        )
+        copied_rtf = self.window.convertToRTF("1.0", "1.4")
+
+        self.window.text.delete("1.0", "end")
+        self.window.hyperlink_tags = {}
+        self.window.hyperlink_tag_counter = 0
+        self.window.text.insert("1.0", "Before  after")
+        paste_mark = "__test_hyperlink_paste"
+        self.window.text.mark_set(paste_mark, "1.7")
+        self.window.text.mark_gravity(paste_mark, "right")
+        try:
+            self.window.displayNestedRTFStructure(
+                app.RTFParser(copied_rtf).parseme(),
+                paste_mark,
+            )
+        finally:
+            self.window.text.mark_unset(paste_mark)
+
+        self.assertEqual(
+            "Before Link after",
+            self.window.text.get("1.0", "end-1c"),
+        )
+        restored_tag = self.window.hyperlinkTagAt("1.8")
+        self.assertEqual(
+            "mailto:test@example.com",
+            self.window.hyperlink_tags[restored_tag]["target"],
+        )
+
+    def test_relinking_part_of_a_link_preserves_adjacent_targets(self):
+        self.window.text.insert("1.0", "abcdef")
+        self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.6",
+            "url",
+            "https://old.example",
+        )
+        self.window.applyHyperlinkToRange(
+            "1.2",
+            "1.4",
+            "url",
+            "https://new.example",
+        )
+
+        exported = self.window.convertToRTF("1.0", "end")
+        self.window.text.delete("1.0", "end")
+        self.window.hyperlink_tags = {}
+        self.window.hyperlink_tag_counter = 0
+        self.window.displayNestedRTFStructure(app.RTFParser(exported).parseme())
+
+        targets = [
+            self.window.hyperlink_tags[
+                self.window.hyperlinkTagAt(index)
+            ]["target"]
+            for index in ("1.1", "1.3", "1.5")
+        ]
+        self.assertEqual(
+            [
+                "https://old.example",
+                "https://new.example",
+                "https://old.example",
+            ],
+            targets,
+        )
+
+    def test_notebook_hyperlink_opens_linked_node(self):
+        with mock.patch.object(
+            self.window,
+            "selectNodePath",
+            return_value="ITEM_2",
+        ) as select_node:
+            result = self.window.activateHyperlink("node", "parent/child")
+
+        self.assertEqual("break", result)
+        select_node.assert_called_once_with(os.path.join("parent", "child"))
+
+    def test_file_hyperlink_uses_the_operating_system_url_handler(self):
+        target = "file:///C:/notes/reference.pdf"
+        with mock.patch.object(app.os, "startfile", create=True) as startfile:
+            result = self.window.activateHyperlink("file", target)
+
+        self.assertEqual("break", result)
+        startfile.assert_called_once_with(target)
+
     def test_formatting_at_document_start_does_not_spill_after_round_trip(self):
         self.window.text.insert("1.0", "Bold plain text")
         self.window.applyStylePropertyToRange("1.0", "1.4", "bold", True)
