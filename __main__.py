@@ -3604,6 +3604,15 @@ class RTFWindow:
         entry.focus_set()
         return 'break'
     
+    def replaceTextSelectionForPaste(self):
+        """Remove the selected content and place the cursor at its start."""
+        if not self.text.tag_ranges('sel'):
+            return
+
+        paste_index = self.text.index('sel.first')
+        self.text.delete('sel.first', 'sel.last')
+        self.text.mark_set('insert', paste_index)
+
     def pasteFromClipboard(self, event=None):
         self.clip.open_clipboard()
         try:
@@ -3615,6 +3624,7 @@ class RTFWindow:
         
         if clip_rtf_data == None: # fallback on grabbing very normal images from clipboard
             if clipboard_files:
+                self.replaceTextSelectionForPaste()
                 for path in clipboard_files:
                     try:
                         with Image.open(path) as opened_image:
@@ -3633,6 +3643,7 @@ class RTFWindow:
                 return None
             
             if type(clipimg) == list:
+                self.replaceTextSelectionForPaste()
                 for path in clipimg:
                     try:
                         with Image.open(path) as opened_image:
@@ -3643,10 +3654,12 @@ class RTFWindow:
                 
                 return 'break'
             
+            self.replaceTextSelectionForPaste()
             self.createEmbeddedImage('insert', clipimg)
         else: # rtf data on the clipboard
             # parse it and display it as normal, to facilitate being able to copy-paste within SuperText
             parsed_clip = RTFParser(clip_rtf_data).parseme()
+            self.replaceTextSelectionForPaste()
             paste_mark = '__paste_insert'
             self.text.mark_set(paste_mark, 'insert')
             self.text.mark_gravity(paste_mark, 'right')
