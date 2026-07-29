@@ -2234,7 +2234,7 @@ class RTFWindow:
     def removeTableLayoutTags(self):
         for tag in list(self.text.tag_names()):
             if self.isTableTag(tag):
-                self.text.tag_remove(tag, '1.0', 'end')
+                self.text.tag_delete(tag)
 
     def lineHasTableCells(self, line_number):
         return '\t' in self.text.get(f'{line_number}.0', f'{line_number}.end')
@@ -2297,28 +2297,42 @@ class RTFWindow:
     def tableLineCellWidths(self, line_number):
         line_start = f'{line_number}.0'
         line_end = f'{line_number}.end'
-        current = line_start
         widths = [0]
         font_cache = {}
+        active_tags = list(self.text.tag_names(line_start))
 
-        while self.text.compare(current, '<', line_end):
-            next_index = self.text.index(f'{current}+1c')
-            char = self.text.get(current, next_index)
-            if char == '\t':
-                widths.append(0)
-                current = next_index
+        for token_type, token_value, _index in self.text.dump(
+            line_start,
+            line_end,
+            tag=True,
+            text=True,
+        ):
+            if token_type == 'tagon':
+                if token_value not in active_tags:
+                    active_tags.append(token_value)
+                continue
+            if token_type == 'tagoff':
+                if token_value in active_tags:
+                    active_tags.remove(token_value)
+                continue
+            if token_type != 'text':
+                continue
+            if any(self.isAlignmentPaddingTag(tag) for tag in active_tags):
                 continue
 
-            if self.indexHasAlignmentPadding(current):
-                current = next_index
-                continue
-
-            style = self.getTextStyleAt(current)
+            style = self.defaultTextStyle()
+            for tag in active_tags:
+                if tag in self.style_tags:
+                    style.update(self.style_tags[tag])
             key = self._style_key(style)
             if key not in font_cache:
                 font_cache[key] = self.textStyleFont(style)
-            widths[-1] += font_cache[key].measure(char)
-            current = next_index
+
+            parts = token_value.split('\t')
+            for part_number, part in enumerate(parts):
+                widths[-1] += font_cache[key].measure(part)
+                if part_number < len(parts) - 1:
+                    widths.append(0)
 
         return widths
 
@@ -2346,6 +2360,7 @@ class RTFWindow:
 
         last_line = int(self.text.index('end-1c').split('.')[0])
         line_number = 1
+        blocks_by_tab_stops = {}
         while line_number <= last_line:
             if not self.lineHasTableCells(line_number):
                 line_number += 1
@@ -2357,11 +2372,22 @@ class RTFWindow:
             block_finish = line_number - 1
 
             self.resizeHeaderSeparatorForTable(block_start, block_finish)
-            tag = f'{self.TABLE_TAG_PREFIX}{block_start}'
             tab_stops = self.tableTabStopsForLines(block_start, block_finish)
+            blocks_by_tab_stops.setdefault(tab_stops, []).append(
+                (block_start, block_finish)
+            )
+
+        for layout_number, (tab_stops, blocks) in enumerate(
+            blocks_by_tab_stops.items()
+        ):
+            tag = f'{self.TABLE_TAG_PREFIX}{layout_number}'
             self.text.tag_configure(tag, tabs=tab_stops)
-            for tagged_line in range(block_start, block_finish + 1):
-                self.text.tag_add(tag, f'{tagged_line}.0', f'{tagged_line}.end')
+            for block_start, block_finish in blocks:
+                self.text.tag_add(
+                    tag,
+                    f'{block_start}.0',
+                    f'{block_finish}.end',
+                )
 
         self.text.edit_modified(was_modified)
         return None

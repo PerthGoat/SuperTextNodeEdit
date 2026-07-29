@@ -637,6 +637,51 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             self.window.text.get("1.0", "end"),
         )
 
+    def test_table_layout_uses_one_contiguous_tag_range_per_table(self):
+        table = self.window.buildTableText(5, 4)
+        self.window.text.insert("1.0", f"{table}\n\n{table}")
+
+        self.window.refreshTableLayout()
+
+        table_tags = [
+            tag
+            for tag in self.window.text.tag_names()
+            if tag.startswith(self.window.TABLE_TAG_PREFIX)
+        ]
+        table_ranges = [
+            (str(start), str(finish))
+            for tag in table_tags
+            for start, finish in zip(
+                self.window.text.tag_ranges(tag)[0::2],
+                self.window.text.tag_ranges(tag)[1::2],
+            )
+        ]
+        self.assertEqual(
+            [("1.0", "5.41"), ("7.0", "11.41")],
+            table_ranges,
+        )
+        self.assertEqual(1, len(table_tags))
+
+    def test_table_width_measurement_preserves_mixed_font_styles(self):
+        self.window.text.insert("1.0", "| Wide\t| Narrow\t|")
+        bold_style = self.window.defaultTextStyle()
+        bold_style["bold"] = True
+        bold_tag = self.window.getStyleTag(bold_style)
+        self.window.text.tag_add(bold_tag, "1.2", "1.6")
+
+        widths = self.window.tableLineCellWidths(1)
+
+        regular_font = self.window.textStyleFont(self.window.defaultTextStyle())
+        self.assertEqual(
+            [
+                regular_font.measure("| ")
+                + self.window.textStyleFont(bold_style).measure("Wide"),
+                regular_font.measure("| Narrow"),
+                regular_font.measure("|"),
+            ],
+            widths,
+        )
+
     def test_rtf_export_and_import_round_trips_tabs(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         self.window.text.insert("1.0", "Name\tValue")
