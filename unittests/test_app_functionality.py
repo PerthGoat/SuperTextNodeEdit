@@ -678,6 +678,87 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(self.window.text.tag_cget(table_tag, "tabs"))
         self.assertIn(table_tag, self.window.text.tag_names("2.0"))
 
+    def test_insert_horizontal_rule_splits_text_and_uses_embedded_element(self):
+        self.window.text.insert("1.0", "BeforeAfter")
+        self.window.text.mark_set("insert", "1.6")
+
+        result = self.window.insertHorizontalRule()
+
+        self.assertEqual("break", result)
+        self.assertEqual(
+            "Before\n\nAfter\n",
+            self.window.text.get("1.0", "end"),
+        )
+        rule_tokens = [
+            token
+            for token in self.window.text.dump("1.0", "end")
+            if token[0] == "window"
+        ]
+        self.assertEqual(1, len(rule_tokens))
+        self.assertIn(rule_tokens[0][1], self.window.horizontal_rules)
+        self.assertEqual("2.0", rule_tokens[0][2])
+
+    def test_horizontal_rule_spans_available_document_width(self):
+        self.window.insertHorizontalRule()
+        self.window.window.deiconify()
+        self.window.window.update_idletasks()
+        self.window.window.update()
+        self.window.refreshHorizontalRuleLayout()
+
+        token = next(
+            token
+            for token in self.window.text.dump("1.0", "end")
+            if token[0] == "window"
+        )
+        rule = self.window.horizontal_rules[token[1]]["widget"]
+        rule_width = int(rule.cget("width"))
+
+        self.assertEqual(
+            self.window.horizontalRuleWidth(token[2]),
+            rule_width,
+        )
+        self.assertGreater(rule_width, 500)
+        self.assertLessEqual(
+            self.window.text.winfo_width() - rule_width,
+            20,
+        )
+
+        self.window.window.geometry("900x650")
+        self.window.window.update()
+        resized_width = int(rule.cget("width"))
+
+        self.assertLess(resized_width, rule_width)
+        self.assertEqual(
+            self.window.horizontalRuleWidth(token[2]),
+            resized_width,
+        )
+
+    def test_horizontal_rule_round_trips_through_rtf(self):
+        self.window.text.insert("1.0", "Above")
+        self.window.text.mark_set("insert", "end-1c")
+        self.window.insertHorizontalRule()
+        self.window.text.insert("insert", "Below")
+
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.assertIn(r"{\*\supertexthr }", rtf)
+        parsed = app.RTFParser(rtf).parseme()
+        self.window.text.delete("1.0", "end")
+        self.window.horizontal_rules = {}
+        self.window.displayNestedRTFStructure(parsed)
+
+        self.assertEqual(
+            "Above\n\nBelow\n",
+            self.window.text.get("1.0", "end"),
+        )
+        rule_tokens = [
+            token
+            for token in self.window.text.dump("1.0", "end")
+            if token[0] == "window"
+        ]
+        self.assertEqual(1, len(rule_tokens))
+        self.assertIn(rule_tokens[0][1], self.window.horizontal_rules)
+
     def test_insert_table_with_header_adds_separator_row(self):
         self.window.insertTable(3, 2, has_header=True)
 

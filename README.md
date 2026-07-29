@@ -41,6 +41,13 @@ can open another node in the current notebook, a website or other registered
 URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
 text copy and paste.
 
+## Horizontal lines
+
+Choose **Insert → Horizontal Line** to add a divider at the text cursor. The
+divider is placed on its own line, spans the full usable document width, and
+automatically resizes with the editor. Horizontal lines are preserved when a
+note is saved and reopened.
+
 ## Format painter
 
 Place the text cursor in formatted text and choose **Format → Format Painter**

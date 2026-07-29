@@ -73,6 +73,7 @@ class OpenDocument:
     tkinter_imagelist: list = field(default_factory=list)
     embedded_images: dict = field(default_factory=dict)
     embedded_files: dict = field(default_factory=dict)
+    horizontal_rules: dict = field(default_factory=dict)
     font_table: dict = field(default_factory=lambda: {0: "Consolas"})
     color_table: dict = field(default_factory=lambda: {0: None})
     style_tags: dict = field(default_factory=dict)
@@ -112,6 +113,8 @@ class RTFWindow:
     IMAGE_RESIZE_MIN_SIZE = 8
     TABLE_MIN_CELL_WIDTH = 48
     TABLE_COLUMN_GAP = 24
+    HORIZONTAL_RULE_HEIGHT = 9
+    HORIZONTAL_RULE_COLOR = "#737373"
 
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
@@ -137,6 +140,7 @@ class RTFWindow:
         self.tkinter_imagelist = [] # tkinter has a garbage collector bug where images need to be kept in a list to prevent them being garbage collected
         self.embedded_images = {}
         self.embedded_files = {}
+        self.horizontal_rules = {}
         self.attachment_tempdir = tempfile.TemporaryDirectory(prefix='supertext-attachments-')
         self.image_resize_state = None
         self.current_text_cursor = self.TEXT_CURSOR
@@ -158,6 +162,7 @@ class RTFWindow:
         self.toolbar_style_after_id = None
         self.center_layout_after_id = None
         self.table_layout_after_id = None
+        self.horizontal_rule_layout_after_id = None
 
         # track if a UI popup is open or not to prevent spawning multiple windows
         self.UI_popup = None
@@ -200,6 +205,7 @@ class RTFWindow:
             self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
+            self.cancelScheduledHorizontalRuleLayoutRefresh()
             self.attachment_tempdir.cleanup()
             original_destroy()
         self.window.destroy = destroyWindow
@@ -366,6 +372,7 @@ class RTFWindow:
         editor.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
         editor.bind('<Configure>', self.scheduleTableLayoutRefresh, add='+')
+        editor.bind('<Configure>', self.scheduleHorizontalRuleLayoutRefresh, add='+')
         editor.bind('<Motion>', self.updateImageResizeCursor, add='+')
         editor.bind('<ButtonPress-1>', self.beginImageResize, add='+')
         editor.bind('<B1-Motion>', self.dragImageResize, add='+')
@@ -458,6 +465,7 @@ class RTFWindow:
         document.tkinter_imagelist = self.tkinter_imagelist
         document.embedded_images = self.embedded_images
         document.embedded_files = self.embedded_files
+        document.horizontal_rules = self.horizontal_rules
         document.font_table = self.font_table
         document.color_table = self.color_table
         document.style_tags = self.style_tags
@@ -484,6 +492,7 @@ class RTFWindow:
             self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
+            self.cancelScheduledHorizontalRuleLayoutRefresh()
             self.captureActiveDocumentState()
 
         self.active_document = document
@@ -492,6 +501,7 @@ class RTFWindow:
         self.tkinter_imagelist = document.tkinter_imagelist
         self.embedded_images = document.embedded_images
         self.embedded_files = document.embedded_files
+        self.horizontal_rules = document.horizontal_rules
         self.font_table = document.font_table
         self.color_table = document.color_table
         self.style_tags = document.style_tags
@@ -510,6 +520,7 @@ class RTFWindow:
         self.setToolbarStyleVars(self.typing_style)
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
+        self.scheduleHorizontalRuleLayoutRefresh()
         return document
 
     def documentContentHash(self, data):
@@ -522,6 +533,7 @@ class RTFWindow:
         document.tkinter_imagelist = []
         document.embedded_images = {}
         document.embedded_files = {}
+        document.horizontal_rules = {}
         document.font_table = {0: self.DEFAULT_FONT_FAMILY}
         document.color_table = {0: self.DEFAULT_TEXT_COLOR}
         document.style_tags = {}
@@ -905,6 +917,10 @@ class RTFWindow:
             command=self.showInsertHyperlinkDialog,
         )
         insert_menu.add_command(label='Table...', command=self.showInsertTableDialog)
+        insert_menu.add_command(
+            label='Horizontal Line',
+            command=self.insertHorizontalRule,
+        )
         menu_bar.add_cascade(label='Insert', menu=insert_menu)
 
         format_menu = tk.Menu(menu_bar, tearoff=False)
@@ -1445,6 +1461,7 @@ class RTFWindow:
         self.scheduleToolbarStyleUpdate()
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
+        self.scheduleHorizontalRuleLayoutRefresh()
         return 'break'
 
     def redoDocument(self, event=None):
@@ -1456,6 +1473,7 @@ class RTFWindow:
         self.scheduleToolbarStyleUpdate()
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
+        self.scheduleHorizontalRuleLayoutRefresh()
         return 'break'
 
     def showFontFamilyDialog(self):
@@ -3182,6 +3200,124 @@ class RTFWindow:
         label.bind('<Button-3>', lambda event, name=embedded_name: self.showEmbeddedFileMenu(event, name))
         return embedded_name
 
+    def createHorizontalRule(self, index):
+        """Create a full-width horizontal rule embedded in the document."""
+        background = self.text.widget.cget('background')
+        rule = tk.Canvas(
+            self.text.widget,
+            height=self.HORIZONTAL_RULE_HEIGHT,
+            width=1,
+            background=background,
+            borderwidth=0,
+            highlightthickness=0,
+            takefocus=False,
+        )
+        line = rule.create_line(
+            0,
+            self.HORIZONTAL_RULE_HEIGHT // 2,
+            1,
+            self.HORIZONTAL_RULE_HEIGHT // 2,
+            fill=self.HORIZONTAL_RULE_COLOR,
+            width=1,
+        )
+        self.text.window_create(index, window=rule, align='center', pady=3)
+        embedded_name = str(rule)
+        self.horizontal_rules[embedded_name] = {
+            'widget': rule,
+            'line': line,
+        }
+        self.scheduleHorizontalRuleLayoutRefresh()
+        return embedded_name
+
+    def horizontalRuleWidth(self, token_index=None):
+        """Return the usable width of the active document."""
+        widget_width = self.text.winfo_width()
+        if widget_width <= 1:
+            self.text.update_idletasks()
+            widget_width = self.text.winfo_width()
+
+        border = int(self.text.widget.cget('borderwidth'))
+        highlight = int(self.text.widget.cget('highlightthickness'))
+        padding = int(self.text.widget.cget('padx'))
+        left_margin = border + highlight + padding
+
+        # Use the same margin on both sides so the line spans the document's
+        # usable width without causing an otherwise wrapped line to overflow.
+        return max(1, widget_width - (2 * left_margin) - 1)
+
+    def refreshHorizontalRuleLayout(self):
+        """Resize every horizontal rule in the active document."""
+        live_rules = set()
+        for token_type, token_value, token_index in self.text.dump('1.0', 'end'):
+            if token_type != 'window' or token_value not in self.horizontal_rules:
+                continue
+
+            live_rules.add(token_value)
+            rule_data = self.horizontal_rules[token_value]
+            rule = rule_data['widget']
+            if not rule.winfo_exists():
+                continue
+
+            width = self.horizontalRuleWidth(token_index)
+            rule.configure(width=width)
+            rule.coords(
+                rule_data['line'],
+                0,
+                self.HORIZONTAL_RULE_HEIGHT // 2,
+                width,
+                self.HORIZONTAL_RULE_HEIGHT // 2,
+            )
+
+        # Tk destroys embedded widgets when their document range is deleted.
+        # Remove those stale references while retaining temporarily unmapped
+        # widgets that may still participate in an undo operation.
+        for embedded_name in list(self.horizontal_rules):
+            rule = self.horizontal_rules[embedded_name]['widget']
+            if embedded_name not in live_rules and not rule.winfo_exists():
+                self.horizontal_rules.pop(embedded_name, None)
+        return None
+
+    def scheduleHorizontalRuleLayoutRefresh(self, event=None):
+        if self.horizontal_rule_layout_after_id is None:
+            self.horizontal_rule_layout_after_id = self.window.after_idle(
+                self.runScheduledHorizontalRuleLayoutRefresh
+            )
+        return None
+
+    def cancelScheduledHorizontalRuleLayoutRefresh(self, event=None):
+        if self.horizontal_rule_layout_after_id is not None:
+            try:
+                self.window.after_cancel(self.horizontal_rule_layout_after_id)
+            except tk.TclError:
+                pass
+            self.horizontal_rule_layout_after_id = None
+        return None
+
+    def runScheduledHorizontalRuleLayoutRefresh(self):
+        self.horizontal_rule_layout_after_id = None
+        return self.refreshHorizontalRuleLayout()
+
+    def insertHorizontalRule(self, event=None):
+        """Insert a horizontal rule on its own line at the text cursor."""
+        if self.text.tag_ranges('sel'):
+            self.text.delete('sel.first', 'sel.last')
+
+        self.text.edit_separator()
+        insertion_index = self.text.index('insert')
+        line_start = self.text.index(f'{insertion_index} linestart')
+        if self.text.compare(insertion_index, '!=', line_start):
+            self.insertStyledText('insert', '\n', self.typing_style)
+
+        self.createHorizontalRule('insert')
+        self.insertStyledText('insert', '\n', self.typing_style)
+        self.text.edit_separator()
+        self.refreshHorizontalRuleLayout()
+        self.text.see('insert')
+        self.text.focus_set()
+        self.markCurrentDocumentModified()
+        self.updateToolbarStyleFromSelection()
+        return 'break'
+
     def showEmbeddedFileMenu(self, event, embedded_name):
         menu = tk.Menu(self.window, tearoff=False)
         menu.add_command(label='Copy attachment', command=lambda: self.copyEmbeddedFile(embedded_name))
@@ -3636,6 +3772,9 @@ class RTFWindow:
         if self.hasDirectRTFCommand(structure, 'supertextfile'):
             return self.displayRTFFileGroup(structure, insertion_index)
 
+        if self.hasDirectRTFCommand(structure, 'supertexthr'):
+            return self.createHorizontalRule(insertion_index)
+
         current_style = style.copy()
         for token in structure:
             if isinstance(token, list):
@@ -3831,6 +3970,7 @@ class RTFWindow:
         document.tkinter_imagelist = []
         document.embedded_images = {}
         document.embedded_files = {}
+        document.horizontal_rules = {}
         document.font_table = {0: self.DEFAULT_FONT_FAMILY}
         document.color_table = {0: self.DEFAULT_TEXT_COLOR}
         document.style_tags = {}
@@ -4056,6 +4196,10 @@ class RTFWindow:
                 body += (r'{\*\supertextfile '
                          r'{\supertextfilename ' + filename_hex + '}'
                          r'{\supertextdata ' + data_hex + '}}')
+                continue
+
+            if token_type == 'window' and token_value in self.horizontal_rules:
+                body += r'{\*\supertexthr }'
                 continue
 
             if token_type != 'text':
