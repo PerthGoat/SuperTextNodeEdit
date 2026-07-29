@@ -107,6 +107,7 @@ class RTFWindow:
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
     TEXT_CURSOR = 'xterm'
+    FORMAT_PAINTER_CURSOR = 'crosshair'
     IMAGE_RESIZE_HANDLE_SIZE = 8
     IMAGE_RESIZE_MIN_SIZE = 8
     TABLE_MIN_CELL_WIDTH = 48
@@ -151,6 +152,9 @@ class RTFWindow:
         self.hyperlink_tags = {}
         self.hyperlink_tag_counter = 0
         self.typing_style = self.defaultTextStyle()
+        self.format_painter_style = None
+        self.format_painter_document = None
+        self.format_painter_source_selection = None
         self.toolbar_style_after_id = None
         self.center_layout_after_id = None
         self.table_layout_after_id = None
@@ -223,6 +227,7 @@ class RTFWindow:
         self.bold_menu_var = tk.BooleanVar(value=False)
         self.italic_menu_var = tk.BooleanVar(value=False)
         self.center_menu_var = tk.BooleanVar(value=False)
+        self.format_painter_menu_var = tk.BooleanVar(value=False)
         self.wrap_text_var = tk.BooleanVar(value=True)
         self.createMenuBar()
         
@@ -350,10 +355,13 @@ class RTFWindow:
         editor.bind('<Control-k>', self.showInsertHyperlinkDialog)
         editor.bind('<Control-K>', self.showInsertHyperlinkDialog)
         editor.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
+        editor.bind('<Control-Shift-c>', self.toggleFormatPainter)
+        editor.bind('<Control-Shift-C>', self.toggleFormatPainter)
         editor.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         editor.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
         editor.bind('<KeyRelease>', self.scheduleTableLayoutRefresh, add='+')
+        editor.bind('<KeyRelease>', self.applyFormatPainterAfterKeySelection, add='+')
         editor.bind('<ButtonRelease-1>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<<Selection>>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<Configure>', self.scheduleCenteredTextLayoutRefresh, add='+')
@@ -362,6 +370,7 @@ class RTFWindow:
         editor.bind('<ButtonPress-1>', self.beginImageResize, add='+')
         editor.bind('<B1-Motion>', self.dragImageResize, add='+')
         editor.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
+        editor.bind('<ButtonRelease-1>', self.applyFormatPainterToSelection, add='+')
         editor.bind('<Control-x>', self.cutTextSelection)
         editor.bind(
             '<<Modified>>',
@@ -469,6 +478,7 @@ class RTFWindow:
             return None
         self.cancelPendingNodePreview()
         if self.active_document is not document:
+            self.cancelFormatPainter()
             if synchronize_current:
                 self.synchronizeOpenDocumentCopies(self.active_document)
             self.cancelScheduledToolbarStyleUpdate()
@@ -914,6 +924,13 @@ class RTFWindow:
         format_menu.add_cascade(label='Font Size', menu=size_menu)
 
         format_menu.add_command(label='Text Color...', command=self.chooseTextColorForSelection)
+        format_menu.add_separator()
+        format_menu.add_checkbutton(
+            label='Format Painter',
+            accelerator='Ctrl+Shift+C',
+            variable=self.format_painter_menu_var,
+            command=self.toggleFormatPainter,
+        )
         format_menu.add_separator()
         format_menu.add_checkbutton(
             label='Bold',
@@ -2034,6 +2051,91 @@ class RTFWindow:
         )
         self.updateToolbarStyleFromSelection()
         return result
+
+    def applyStyleToRange(self, start, finish, style):
+        """Replace every text-format property in a range with one style."""
+        if not self.text.compare(start, '<', finish):
+            return None
+
+        normalized_style = {**self.defaultTextStyle(), **style}
+        normalized_style["color"] = self.normalizeColor(normalized_style["color"])
+        normalized_style["alignment"] = self.normalizeAlignment(
+            normalized_style["alignment"]
+        )
+        self.removeStyleTags(start, finish)
+        tag = self.getStyleTag(normalized_style)
+        if tag is not None:
+            self.text.tag_add(tag, start, finish)
+
+        self.markCurrentDocumentModified()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        return 'break'
+
+    def activateFormatPainter(self, event=None):
+        """Capture the complete style at the insertion cursor for one use."""
+        self.format_painter_style = self.getTextStyleAt(
+            self.getToolbarStyleIndex()
+        ).copy()
+        self.format_painter_document = self.active_document
+        self.format_painter_source_selection = self.selectedTextRange(
+            show_error=False
+        )
+        self.format_painter_menu_var.set(True)
+        self.configureTextCursor(self.FORMAT_PAINTER_CURSOR)
+        return 'break'
+
+    def cancelFormatPainter(self, event=None):
+        was_active = self.format_painter_style is not None
+        self.format_painter_style = None
+        self.format_painter_document = None
+        self.format_painter_source_selection = None
+        if hasattr(self, 'format_painter_menu_var'):
+            self.format_painter_menu_var.set(False)
+        if was_active and hasattr(self, 'text'):
+            self.configureTextCursor(self.TEXT_CURSOR)
+        return 'break' if was_active else None
+
+    def toggleFormatPainter(self, event=None):
+        if self.format_painter_style is not None:
+            return self.cancelFormatPainter(event)
+        return self.activateFormatPainter(event)
+
+    def applyFormatPainterToSelection(self, event=None):
+        """Apply a captured style after the user completes a selection."""
+        style = self.format_painter_style
+        if style is None:
+            return None
+        if self.format_painter_document is not self.active_document:
+            return self.cancelFormatPainter()
+
+        selected_range = self.selectedTextRange(show_error=False)
+        if selected_range is None:
+            return None
+        if selected_range == self.format_painter_source_selection:
+            return None
+
+        result = self.applyStyleToRange(
+            selected_range[0],
+            selected_range[1],
+            style,
+        )
+        self.cancelFormatPainter()
+        self.updateToolbarStyleFromSelection()
+        return None if event is not None else result
+
+    def applyFormatPainterAfterKeySelection(self, event):
+        """Finish keyboard-driven highlighting when its keys are released."""
+        if self.format_painter_style is None or not self.text.tag_ranges('sel'):
+            return None
+
+        if event.keysym in {'Shift_L', 'Shift_R'}:
+            return self.applyFormatPainterToSelection(event)
+
+        shift_is_held = bool(event.state & 0x0001)
+        if shift_is_held:
+            return None
+        return self.applyFormatPainterToSelection(event)
 
     def selectionAllHasStyleProperty(self, start, finish, property_name, value):
         current = start
@@ -3322,6 +3424,12 @@ class RTFWindow:
 
     def configureTextCursor(self, cursor):
         cursor = cursor or self.TEXT_CURSOR
+        if (
+            cursor == self.TEXT_CURSOR
+            and self.format_painter_style is not None
+            and self.format_painter_document is self.active_document
+        ):
+            cursor = self.FORMAT_PAINTER_CURSOR
         if cursor == self.current_text_cursor:
             return None
 
@@ -4380,6 +4488,8 @@ class RTFWindow:
         return 'break'
 
     def cancelNodeInteraction(self, event=None):
+        if self.format_painter_style is not None:
+            return self.cancelFormatPainter(event)
         if self.move_source_node is not None:
             return self.cancelMoveNode()
         if self.rename_entry is not None:

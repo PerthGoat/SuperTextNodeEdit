@@ -41,6 +41,13 @@ can open another node in the current notebook, a website or other registered
 URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
 text copy and paste.
 
+## Format painter
+
+Place the text cursor in formatted text and choose **Format → Format Painter**
+or press **Ctrl+Shift+C**. The next text you highlight receives the same font,
+size, color, bold, italic, and alignment styling. The painter applies once and
+then switches off; press **Escape** to cancel it without applying.
+
 Tables can be copied in interoperable formats by right-clicking anywhere in a
 table and choosing **Copy Table as TSV** or **Copy Table as HTML**. Header
 separator rows are omitted; the HTML option also provides a formatted table to

@@ -1395,6 +1395,76 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(style["bold"])
         self.assertTrue(self.window.bold_menu_var.get())
 
+    def test_format_painter_copies_complete_cursor_style_to_next_selection(self):
+        self.window.text.insert("1.0", "Source plain target")
+        source_style = {
+            "font_family": "Arial",
+            "font_size": 20,
+            "color": "#ff0000",
+            "bold": True,
+            "italic": True,
+            "alignment": "center",
+        }
+        self.window.applyStyleToRange("1.0", "1.6", source_style)
+        self.window.text.mark_set("insert", "1.3")
+
+        self.window.activateFormatPainter()
+
+        self.assertEqual(source_style, self.window.format_painter_style)
+        self.assertTrue(self.window.format_painter_menu_var.get())
+        self.assertEqual(
+            self.window.FORMAT_PAINTER_CURSOR,
+            self.window.current_text_cursor,
+        )
+        self.window.text.tag_add("sel", "1.13", "1.19")
+        self.window.applyFormatPainterToSelection()
+
+        self.assertEqual(source_style, self.window.getTextStyleAt("1.13"))
+        self.assertEqual(self.window.defaultTextStyle(), self.window.getTextStyleAt("1.7"))
+        self.assertIsNone(self.window.format_painter_style)
+        self.assertFalse(self.window.format_painter_menu_var.get())
+        self.assertEqual(self.window.TEXT_CURSOR, self.window.current_text_cursor)
+
+    def test_format_painter_waits_for_keyboard_selection_to_finish(self):
+        self.window.text.insert("1.0", "Bold plain")
+        self.window.applyStylePropertyToRange("1.0", "1.4", "bold", True)
+        self.window.text.mark_set("insert", "1.2")
+        self.window.activateFormatPainter()
+        self.window.text.tag_add("sel", "1.5", "1.6")
+
+        self.window.applyFormatPainterAfterKeySelection(
+            SimpleNamespace(keysym="Right", state=0x0001)
+        )
+
+        self.assertFalse(self.window.getTextStyleAt("1.5")["bold"])
+        self.assertIsNotNone(self.window.format_painter_style)
+
+        self.window.applyFormatPainterAfterKeySelection(
+            SimpleNamespace(keysym="Shift_L", state=0)
+        )
+
+        self.assertTrue(self.window.getTextStyleAt("1.5")["bold"])
+        self.assertIsNone(self.window.format_painter_style)
+
+    def test_format_painter_does_not_apply_to_source_selection_on_activation(self):
+        self.window.text.insert("1.0", "Bold plain")
+        self.window.applyStylePropertyToRange("1.0", "1.4", "bold", True)
+        self.window.text.tag_add("sel", "1.0", "1.4")
+        self.window.activateFormatPainter()
+
+        self.window.applyFormatPainterAfterKeySelection(
+            SimpleNamespace(keysym="Shift_L", state=0)
+        )
+
+        self.assertIsNotNone(self.window.format_painter_style)
+
+        self.window.text.tag_remove("sel", "1.0", "1.4")
+        self.window.text.tag_add("sel", "1.5", "1.10")
+        self.window.applyFormatPainterToSelection()
+
+        self.assertTrue(self.window.getTextStyleAt("1.5")["bold"])
+        self.assertIsNone(self.window.format_painter_style)
+
     def test_display_nested_rtf_structure_imports_text_formatting(self):
         rtf_text = (
             r"{\rtf1\ansi\pard "
