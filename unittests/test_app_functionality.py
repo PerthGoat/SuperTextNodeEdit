@@ -1,4 +1,5 @@
 import configparser
+import hashlib
 import importlib.util
 import os
 import struct
@@ -1104,6 +1105,49 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         filename_payload, filename_format = self.window.clip.set_calls[2]
         self.assertEqual(0xC124, filename_format)
         self.assertTrue(filename_payload.endswith('payload.bin'.encode('utf-16-le') + b'\0'))
+
+    def test_calculate_attachment_sha1_displays_and_returns_digest(self):
+        data = b'payload'
+        name = self.window.createEmbeddedFile('1.0', 'payload.bin', data)
+        expected_digest = hashlib.sha1(data).hexdigest()
+
+        with mock.patch.object(app.messagebox, 'showinfo') as showinfo:
+            digest = self.window.calculateEmbeddedFileSha1(name)
+
+        self.assertEqual(expected_digest, digest)
+        showinfo.assert_called_once_with(
+            'SHA-1 hash',
+            f'payload.bin\n\n{expected_digest}',
+        )
+
+    def test_calculate_attachment_sha1_ignores_missing_attachment(self):
+        with mock.patch.object(app.messagebox, 'showinfo') as showinfo:
+            digest = self.window.calculateEmbeddedFileSha1('missing')
+
+        self.assertIsNone(digest)
+        showinfo.assert_not_called()
+
+    def test_attachment_context_menu_includes_sha1_action(self):
+        name = self.window.createEmbeddedFile('1.0', 'payload.bin', b'payload')
+        event = SimpleNamespace(x_root=110, y_root=220)
+        menu = mock.Mock()
+
+        with (
+            mock.patch.object(app.tk, 'Menu', return_value=menu),
+            mock.patch.object(self.window, 'calculateEmbeddedFileSha1') as calculate,
+        ):
+            result = self.window.showEmbeddedFileMenu(event, name)
+            sha1_command = next(
+                call.kwargs['command']
+                for call in menu.add_command.call_args_list
+                if call.kwargs.get('label') == 'Calculate SHA-1 hash'
+            )
+            sha1_command()
+
+        self.assertEqual('break', result)
+        menu.add_separator.assert_called_once_with()
+        calculate.assert_called_once_with(name)
+        menu.tk_popup.assert_called_once_with(110, 220)
 
     def test_text_motion_restores_text_cursor_without_reconfiguring_repeatedly(self):
         self.window.current_text_cursor = "sb_h_double_arrow"

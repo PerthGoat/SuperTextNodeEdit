@@ -16,6 +16,7 @@ import datetime
 import io
 import os
 import glob
+import hashlib
 import shutil
 import struct
 import tempfile
@@ -2457,8 +2458,26 @@ class RTFWindow:
         menu = tk.Menu(self.window, tearoff=False)
         menu.add_command(label='Copy attachment', command=lambda: self.copyEmbeddedFile(embedded_name))
         menu.add_command(label='Open attachment', command=lambda: self.openEmbeddedFile(embedded_name))
+        menu.add_separator()
+        menu.add_command(
+            label='Calculate SHA-1 hash',
+            command=lambda: self.calculateEmbeddedFileSha1(embedded_name),
+        )
         menu.tk_popup(event.x_root, event.y_root)
         return 'break'
+
+    def calculateEmbeddedFileSha1(self, embedded_name):
+        """Calculate and display the SHA-1 digest of an embedded attachment."""
+        attachment = self.embedded_files.get(embedded_name)
+        if attachment is None:
+            return None
+
+        digest = hashlib.sha1(attachment['data']).hexdigest()
+        messagebox.showinfo(
+            'SHA-1 hash',
+            f"{attachment['filename']}\n\n{digest}",
+        )
+        return digest
 
     def materializeEmbeddedFile(self, embedded_name):
         attachment = self.embedded_files.get(embedded_name)
