@@ -14,6 +14,7 @@ import datetime
 # IO utilities
 # these handle parsing, renaming, removing, and moving the various node/file trees
 import io
+import html
 import os
 import glob
 import hashlib
@@ -297,6 +298,15 @@ class RTFWindow:
         self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
         self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
         self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
+        self.text_context_menu.add_separator()
+        self.text_context_menu.add_command(
+            label='Copy Table as TSV',
+            command=self.copyTableAsTSV,
+        )
+        self.text_context_menu.add_command(
+            label='Copy Table as HTML',
+            command=self.copyTableAsHTML,
+        )
         self.text_context_menu.add_separator()
         self.text_context_menu.add_command(
             label='Insert Hyperlink...',
@@ -797,6 +807,7 @@ class RTFWindow:
     def showTextContextMenu(self, event):
         """Show editing actions for the document at the pointer position."""
         pointer_index = self.text.index(f'@{event.x},{event.y}')
+        self.context_table_range = self.tableRangeAtIndex(pointer_index)
         selection = self.text.tag_ranges('sel')
         pointer_is_selected = (
             selection
@@ -812,6 +823,15 @@ class RTFWindow:
         selection_state = 'normal' if has_selection else 'disabled'
         self.text_context_menu.entryconfigure('Cut', state=selection_state)
         self.text_context_menu.entryconfigure('Copy', state=selection_state)
+        table_state = 'normal' if self.context_table_range else 'disabled'
+        self.text_context_menu.entryconfigure(
+            'Copy Table as TSV',
+            state=table_state,
+        )
+        self.text_context_menu.entryconfigure(
+            'Copy Table as HTML',
+            state=table_state,
+        )
         self.text_context_menu.entryconfigure(
             'Insert Hyperlink...',
             state=selection_state,
@@ -2585,11 +2605,13 @@ class RTFWindow:
         if '\t' not in line:
             return []
 
+        parts = line.split('\t')
+        if parts and parts[-1].strip() == '|':
+            parts.pop()
+
         cells = []
-        for part in line.split('\t'):
+        for part in parts:
             part = part.strip()
-            if part == '|':
-                continue
             if part.startswith('|'):
                 part = part[1:].strip()
             if part.endswith('|'):
@@ -2600,6 +2622,141 @@ class RTFWindow:
 
     def isTableSeparatorCells(self, cells):
         return bool(cells) and all(re.fullmatch(r'-+', cell or '') for cell in cells)
+
+    def tableRangeAtIndex(self, index):
+        """Return the contiguous table line range containing a text index."""
+        line_number = int(self.text.index(index).split('.')[0])
+        if not self.lineHasTableCells(line_number):
+            return None
+
+        start_line = line_number
+        while start_line > 1 and self.lineHasTableCells(start_line - 1):
+            start_line -= 1
+
+        finish_line = line_number
+        last_line = int(self.text.index('end-1c').split('.')[0])
+        while finish_line < last_line and self.lineHasTableCells(finish_line + 1):
+            finish_line += 1
+
+        return start_line, finish_line
+
+    def tableRowsForExport(self, table_range):
+        """Return table rows and whether the first row is a header."""
+        start_line, finish_line = table_range
+        rows = [
+            self.tableRowCells(line_number)
+            for line_number in range(start_line, finish_line + 1)
+        ]
+        has_header = len(rows) > 1 and self.isTableSeparatorCells(rows[1])
+        if has_header:
+            del rows[1]
+        return rows, has_header
+
+    def currentTableRangeForCopy(self):
+        table_range = getattr(self, 'context_table_range', None)
+        if table_range is not None:
+            start_line, finish_line = table_range
+            if all(
+                self.lineHasTableCells(line_number)
+                for line_number in range(start_line, finish_line + 1)
+            ):
+                return table_range
+        return self.tableRangeAtIndex('insert')
+
+    def tableAsTSV(self, table_range):
+        rows, _has_header = self.tableRowsForExport(table_range)
+        return '\n'.join('\t'.join(cells) for cells in rows)
+
+    def tableAsHTML(self, table_range):
+        rows, has_header = self.tableRowsForExport(table_range)
+        lines = ['<table>']
+        body_rows = rows
+
+        if has_header and rows:
+            lines.extend(['  <thead>', '    <tr>'])
+            lines.extend(
+                f'      <th>{html.escape(cell)}</th>'
+                for cell in rows[0]
+            )
+            lines.extend(['    </tr>', '  </thead>'])
+            body_rows = rows[1:]
+
+        if body_rows:
+            lines.append('  <tbody>')
+            for cells in body_rows:
+                lines.append('    <tr>')
+                lines.extend(
+                    f'      <td>{html.escape(cell)}</td>'
+                    for cell in cells
+                )
+                lines.append('    </tr>')
+            lines.append('  </tbody>')
+
+        lines.append('</table>')
+        return '\n'.join(lines)
+
+    def clipboardHTMLPayload(self, fragment):
+        """Build a byte-offset-correct Windows CF_HTML clipboard payload."""
+        prefix = '<html><body><!--StartFragment-->'
+        suffix = '<!--EndFragment--></body></html>'
+        document = prefix + fragment + suffix
+        header_template = (
+            'Version:0.9\r\n'
+            'StartHTML:{start_html:010d}\r\n'
+            'EndHTML:{end_html:010d}\r\n'
+            'StartFragment:{start_fragment:010d}\r\n'
+            'EndFragment:{end_fragment:010d}\r\n'
+        )
+        placeholder_header = header_template.format(
+            start_html=0,
+            end_html=0,
+            start_fragment=0,
+            end_fragment=0,
+        )
+        start_html = len(placeholder_header.encode('utf-8'))
+        start_fragment = start_html + len(prefix.encode('utf-8'))
+        end_fragment = start_fragment + len(fragment.encode('utf-8'))
+        end_html = start_html + len(document.encode('utf-8'))
+        header = header_template.format(
+            start_html=start_html,
+            end_html=end_html,
+            start_fragment=start_fragment,
+            end_fragment=end_fragment,
+        )
+        return (header + document).encode('utf-8')
+
+    def copyTableAsTSV(self, event=None):
+        table_range = self.currentTableRangeForCopy()
+        if table_range is None:
+            return None
+
+        self.clip.open_clipboard()
+        try:
+            self.clip.clear_clipboard()
+            self.setClipboardPlainText(self.tableAsTSV(table_range))
+        finally:
+            self.clip.close_clipboard()
+        return 'break'
+
+    def copyTableAsHTML(self, event=None):
+        table_range = self.currentTableRangeForCopy()
+        if table_range is None:
+            return None
+
+        fragment = self.tableAsHTML(table_range)
+        self.clip.open_clipboard()
+        try:
+            self.clip.clear_clipboard()
+            self.setClipboardPlainText(fragment)
+            html_format = self.clip.register_format('HTML Format')
+            if html_format is not None:
+                self.clip.set_clipboard(
+                    self.clipboardHTMLPayload(fragment),
+                    html_format,
+                )
+        finally:
+            self.clip.close_clipboard()
+        return 'break'
 
     def resizeHeaderSeparatorForTable(self, start_line, finish_line):
         if finish_line - start_line < 1:

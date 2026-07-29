@@ -49,7 +49,11 @@ class FakeClipboard:
     def register_format(self, name):
         self.registered_formats = getattr(self, 'registered_formats', [])
         self.registered_formats.append(name)
-        return {'Preferred DropEffect': 0xC123, 'FileNameW': 0xC124}[name]
+        return {
+            'Preferred DropEffect': 0xC123,
+            'FileNameW': 0xC124,
+            'HTML Format': 0xC125,
+        }[name]
 
     def set_clipboard(self, data, data_type):
         self.last_set = (data, data_type)
@@ -505,6 +509,14 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(self.window.text.tag_ranges("sel"))
         context_menu.entryconfigure.assert_any_call("Cut", state="normal")
         context_menu.entryconfigure.assert_any_call("Copy", state="normal")
+        context_menu.entryconfigure.assert_any_call(
+            "Copy Table as TSV",
+            state="disabled",
+        )
+        context_menu.entryconfigure.assert_any_call(
+            "Copy Table as HTML",
+            state="disabled",
+        )
         context_menu.tk_popup.assert_called_once_with(110, 220)
         context_menu.grab_release.assert_called_once_with()
 
@@ -811,6 +823,110 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             unicode_payload.decode("utf-16-le"),
         )
         self.assertNotIn(b"\t", unicode_payload)
+
+    def test_table_context_menu_enables_exports_for_table_under_pointer(self):
+        self.window.text.insert("1.0", "Intro\n")
+        self.window.text.insert("end", self.window.buildTableText(2, 2))
+        context_menu = mock.Mock()
+        self.window.text_context_menu = context_menu
+        event = SimpleNamespace(x=1, y=1, x_root=110, y_root=220)
+        original_index = self.window.text.index
+
+        with mock.patch.object(
+            self.window.text,
+            "index",
+            side_effect=lambda index: (
+                "2.3" if str(index).startswith("@") else original_index(index)
+            ),
+        ):
+            result = self.window.showTextContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertEqual((2, 3), self.window.context_table_range)
+        context_menu.entryconfigure.assert_any_call(
+            "Copy Table as TSV",
+            state="normal",
+        )
+        context_menu.entryconfigure.assert_any_call(
+            "Copy Table as HTML",
+            state="normal",
+        )
+
+    def test_copy_table_as_tsv_omits_header_separator_and_keeps_empty_cells(self):
+        self.window.text.insert(
+            "1.0",
+            "| Name\t| Value\t|\n"
+            "| ----\t| -----\t|\n"
+            "| Alpha\t| 1\t|\n"
+            "| \t| 2\t|",
+        )
+        self.window.text.mark_set("insert", "3.2")
+
+        result = self.window.copyTableAsTSV()
+
+        self.assertEqual("break", result)
+        unicode_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.UNITEXT
+        )
+        self.assertEqual(
+            "Name\tValue\nAlpha\t1\n\t2",
+            unicode_payload.decode("utf-16-le"),
+        )
+
+    def test_copy_table_as_html_sets_source_and_cf_html_formats(self):
+        self.window.text.insert(
+            "1.0",
+            "| Name\t| Value\t|\n"
+            "| ----\t| -----\t|\n"
+            "| A & \u2603\t| <five>\t|",
+        )
+        self.window.text.mark_set("insert", "1.2")
+
+        result = self.window.copyTableAsHTML()
+
+        self.assertEqual("break", result)
+        expected_fragment = (
+            "<table>\n"
+            "  <thead>\n"
+            "    <tr>\n"
+            "      <th>Name</th>\n"
+            "      <th>Value</th>\n"
+            "    </tr>\n"
+            "  </thead>\n"
+            "  <tbody>\n"
+            "    <tr>\n"
+            "      <td>A &amp; \u2603</td>\n"
+            "      <td>&lt;five&gt;</td>\n"
+            "    </tr>\n"
+            "  </tbody>\n"
+            "</table>"
+        )
+        unicode_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.UNITEXT
+        )
+        self.assertEqual(expected_fragment, unicode_payload.decode("utf-16-le"))
+        html_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == 0xC125
+        )
+        header, document = html_payload.split(b"<html>", 1)
+        offsets = {
+            line.split(b":", 1)[0]: int(line.split(b":", 1)[1])
+            for line in header.splitlines()
+            if b":" in line and line.split(b":", 1)[1].isdigit()
+        }
+        self.assertEqual(b"<html>" + document, html_payload[offsets[b"StartHTML"]:])
+        self.assertEqual(
+            expected_fragment.encode("utf-8"),
+            html_payload[
+                offsets[b"StartFragment"]:offsets[b"EndFragment"]
+            ],
+        )
 
     def test_formatted_text_copy_sets_plain_text_and_rtf_formats(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")

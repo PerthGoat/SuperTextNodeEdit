@@ -41,6 +41,11 @@ can open another node in the current notebook, a website or other registered
 URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
 text copy and paste.
 
+Tables can be copied in interoperable formats by right-clicking anywhere in a
+table and choosing **Copy Table as TSV** or **Copy Table as HTML**. Header
+separator rows are omitted; the HTML option also provides a formatted table to
+applications that accept HTML clipboard content.
+
 ## Archiving notes
 
 Select a note and use **Nodes → Archive** (or right-click it and choose
