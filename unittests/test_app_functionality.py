@@ -260,6 +260,31 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             ],
         )
 
+    def test_editing_dedicated_tab_updates_same_node_in_preview_tab(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        preview_document = self.window.active_document
+        alpha = self.window.find_self("alpha")
+        event = SimpleNamespace(x=10, y=20)
+
+        with mock.patch.object(self.window.tree, "identify", return_value=alpha):
+            self.window.openNodeFromTreeDoubleClick(event)
+
+        dedicated_document = self.window.active_document
+        self.window.text.insert("end-1c", " changed")
+        self.window.selectDocumentTab(preview_document)
+
+        self.assertEqual(
+            "Alpha text changed",
+            preview_document.text.get("1.0", "end-1c"),
+        )
+        self.assertTrue(preview_document.dirty)
+        self.assertTrue(dedicated_document.dirty)
+        self.assertTrue(
+            self.window.editor_tabs.tab(preview_document.tab_id, "text").startswith("* ")
+        )
+
     def test_opening_multiple_nodes_creates_tabs_and_preserves_unsaved_edits(self):
         self.write_node("alpha", "Alpha text")
         self.write_node("beta", "Beta text")

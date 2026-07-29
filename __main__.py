@@ -86,6 +86,7 @@ class OpenDocument:
     image_resize_state: Any = None
     dirty: bool = False
     loading: bool = False
+    content_hash: str = ''
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -433,11 +434,13 @@ class RTFWindow:
         self.updateDocumentTabTitle(document)
         return document
 
-    def activateDocument(self, document, select_tab=True):
+    def activateDocument(self, document, select_tab=True, synchronize_current=True):
         if document is None:
             return None
         self.cancelPendingNodePreview()
         if self.active_document is not document:
+            if synchronize_current:
+                self.synchronizeOpenDocumentCopies(self.active_document)
             self.cancelScheduledToolbarStyleUpdate()
             self.cancelScheduledCenteredTextLayoutRefresh()
             self.cancelScheduledTableLayoutRefresh()
@@ -464,6 +467,89 @@ class RTFWindow:
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
         return document
+
+    def documentContentHash(self, data):
+        return hashlib.sha256(data.encode('utf-8')).hexdigest()
+
+    def replaceDocumentContent(self, document, parsed_rtf, content_hash, dirty):
+        """Replace one tab from a shared node snapshot without selecting it."""
+        original_document = self.active_document
+        document.loading = True
+        document.tkinter_imagelist = []
+        document.embedded_images = {}
+        document.embedded_files = {}
+        document.font_table = {0: self.DEFAULT_FONT_FAMILY}
+        document.color_table = {0: self.DEFAULT_TEXT_COLOR}
+        document.style_tags = {}
+        document.style_tag_names = {}
+        document.style_tag_counter = 0
+        document.typing_style = self.defaultTextStyle()
+        document.current_text_cursor = self.TEXT_CURSOR
+        document.image_resize_state = None
+        self.activateDocument(
+            document,
+            select_tab=False,
+            synchronize_current=False,
+        )
+
+        try:
+            self.text.delete('1.0', 'end')
+            self.text.edit_reset()
+            self.displayNestedRTFStructure(parsed_rtf)
+            self.text.edit_reset()
+            self.text.edit_modified(bool(dirty))
+            document.dirty = bool(dirty)
+            document.content_hash = content_hash
+            self.captureActiveDocumentState()
+            self.updateDocumentTabTitle(document)
+        finally:
+            document.loading = False
+            if original_document is not None and original_document is not document:
+                self.activateDocument(
+                    original_document,
+                    select_tab=False,
+                    synchronize_current=False,
+                )
+
+    def synchronizeOpenDocumentCopies(self, document, data=None, dirty=None):
+        """Copy the latest content to every other tab showing the same node."""
+        if document is None or not document.path or document is not self.active_document:
+            return None
+
+        normalized_path = self.normalizedDocumentPath(document.path)
+        copies = [
+            candidate
+            for candidate in self.open_documents_by_tab.values()
+            if candidate is not document
+            and self.normalizedDocumentPath(candidate.path) == normalized_path
+        ]
+        if not copies:
+            return None
+
+        if data is None:
+            data = self.convertToRTF('1.0', 'end')
+        if dirty is None:
+            dirty = document.dirty or bool(document.text.edit_modified())
+        content_hash = self.documentContentHash(data)
+        document.content_hash = content_hash
+        document.dirty = bool(dirty)
+
+        parsed_rtf = None
+        for copy in copies:
+            if copy.content_hash == content_hash:
+                copy.text.edit_modified(bool(dirty))
+                copy.dirty = bool(dirty)
+                self.updateDocumentTabTitle(copy)
+                continue
+            if parsed_rtf is None:
+                parsed_rtf = RTFParser(data).parseme()
+            self.replaceDocumentContent(
+                copy,
+                parsed_rtf,
+                content_hash,
+                dirty,
+            )
+        return None
 
     def onEditorTabChanged(self, event=None):
         tab_id = self.editor_tabs.select()
@@ -2997,6 +3083,7 @@ class RTFWindow:
             self.captureActiveDocumentState()
             data = self.convertToRTF('1.0', 'end')
             cloned_modified_document = self.active_document.dirty
+            self.active_document.content_hash = self.documentContentHash(data)
         else:
             try:
                 with open(node_path, 'r', encoding='utf-8') as fi:
@@ -3062,6 +3149,9 @@ class RTFWindow:
             self.text.edit_reset()
             self.text.edit_modified(False)
             document.dirty = False
+            document.content_hash = self.documentContentHash(
+                self.convertToRTF('1.0', 'end')
+            )
             self.captureActiveDocumentState()
             self.updateDocumentTabTitle(document)
         finally:
@@ -3366,6 +3456,11 @@ class RTFWindow:
             self.text.edit_modified(False)
             self.captureActiveDocumentState()
             self.updateDocumentTabTitle(self.active_document)
+            self.synchronizeOpenDocumentCopies(
+                self.active_document,
+                data=data,
+                dirty=False,
+            )
         if show_confirmation:
             messagebox.showinfo(title='Saved file', message='Saved file')
         return True
