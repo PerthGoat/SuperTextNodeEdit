@@ -2473,11 +2473,56 @@ class RTFWindow:
             return None
 
         digest = hashlib.sha1(attachment['data']).hexdigest()
-        messagebox.showinfo(
-            'SHA-1 hash',
-            f"{attachment['filename']}\n\n{digest}",
-        )
+        self.showSha1HashDialog(attachment['filename'], digest)
         return digest
+
+    def showSha1HashDialog(self, filename, digest):
+        """Show a selectable SHA-1 digest with an explicit copy action."""
+        dialog = tk.Toplevel(self.window)
+        dialog.title('SHA-1 hash')
+        dialog.transient(self.window)
+        dialog.resizable(False, False)
+
+        content = ttk.Frame(dialog, padding=12)
+        content.grid(row=0, column=0, sticky='nsew')
+        ttk.Label(content, text=filename).grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky='w',
+            pady=(0, 8),
+        )
+
+        digest_entry = ttk.Entry(content, width=42)
+        digest_entry.insert(0, digest)
+        digest_entry.configure(state='readonly')
+        digest_entry.grid(row=1, column=0, columnspan=2, sticky='ew')
+
+        copy_button = ttk.Button(content, text='Copy')
+
+        def copy_digest():
+            self.copySha1Hash(digest)
+            copy_button.configure(text='Copied!')
+
+        copy_button.configure(command=copy_digest)
+        copy_button.grid(row=2, column=0, sticky='e', padx=(0, 6), pady=(10, 0))
+        ttk.Button(content, text='Close', command=dialog.destroy).grid(
+            row=2,
+            column=1,
+            sticky='w',
+            pady=(10, 0),
+        )
+
+        digest_entry.focus_set()
+        digest_entry.selection_range(0, 'end')
+        dialog.bind('<Escape>', lambda _event: dialog.destroy())
+        return dialog
+
+    def copySha1Hash(self, digest):
+        """Copy a SHA-1 digest as plain text."""
+        self.window.clipboard_clear()
+        self.window.clipboard_append(digest)
+        return 'break'
 
     def materializeEmbeddedFile(self, embedded_name):
         attachment = self.embedded_files.get(embedded_name)

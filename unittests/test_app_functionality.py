@@ -1111,21 +1111,61 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         name = self.window.createEmbeddedFile('1.0', 'payload.bin', data)
         expected_digest = hashlib.sha1(data).hexdigest()
 
-        with mock.patch.object(app.messagebox, 'showinfo') as showinfo:
+        with mock.patch.object(self.window, 'showSha1HashDialog') as show_dialog:
             digest = self.window.calculateEmbeddedFileSha1(name)
 
         self.assertEqual(expected_digest, digest)
-        showinfo.assert_called_once_with(
-            'SHA-1 hash',
-            f'payload.bin\n\n{expected_digest}',
-        )
+        show_dialog.assert_called_once_with('payload.bin', expected_digest)
 
     def test_calculate_attachment_sha1_ignores_missing_attachment(self):
-        with mock.patch.object(app.messagebox, 'showinfo') as showinfo:
+        with mock.patch.object(self.window, 'showSha1HashDialog') as show_dialog:
             digest = self.window.calculateEmbeddedFileSha1('missing')
 
         self.assertIsNone(digest)
-        showinfo.assert_not_called()
+        show_dialog.assert_not_called()
+
+    def test_sha1_dialog_makes_digest_selectable_and_copyable(self):
+        digest = hashlib.sha1(b'payload').hexdigest()
+
+        with mock.patch.object(self.window, 'copySha1Hash') as copy_hash:
+            dialog = self.window.showSha1HashDialog('payload.bin', digest)
+            try:
+                content = dialog.winfo_children()[0]
+                digest_entry = next(
+                    child
+                    for child in content.winfo_children()
+                    if isinstance(child, app.ttk.Entry)
+                )
+                copy_button = next(
+                    child
+                    for child in content.winfo_children()
+                    if isinstance(child, app.ttk.Button) and child.cget('text') == 'Copy'
+                )
+                copy_button.invoke()
+
+                self.assertEqual(digest, digest_entry.get())
+                self.assertIn('readonly', digest_entry.state())
+                self.assertEqual((0, len(digest)), (
+                    digest_entry.index('sel.first'),
+                    digest_entry.index('sel.last'),
+                ))
+                copy_hash.assert_called_once_with(digest)
+                self.assertEqual('Copied!', copy_button.cget('text'))
+            finally:
+                dialog.destroy()
+
+    def test_copy_sha1_hash_places_plain_text_on_clipboard(self):
+        digest = hashlib.sha1(b'payload').hexdigest()
+
+        with (
+            mock.patch.object(self.window.window, 'clipboard_clear') as clear,
+            mock.patch.object(self.window.window, 'clipboard_append') as append,
+        ):
+            result = self.window.copySha1Hash(digest)
+
+        self.assertEqual('break', result)
+        clear.assert_called_once_with()
+        append.assert_called_once_with(digest)
 
     def test_attachment_context_menu_includes_sha1_action(self):
         name = self.window.createEmbeddedFile('1.0', 'payload.bin', b'payload')
