@@ -533,6 +533,26 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("renamedNode", self.window.tree.item(self.window.selected_node)["text"])
         self.assertEqual("renamedNode", self.window.get_node_path(self.window.selected_node))
 
+    def test_duplicate_node_copies_subtree_selects_copy_and_starts_rename(self):
+        source_file = self.write_node("alpha", "Alpha text")
+        child_file = self.write_node(Path("alpha") / "beta", "Beta text")
+        self.write_node("alpha copy", "Existing copy")
+        self.window.populateNodeTree()
+        self.window.selected_node = self.window.find_self("alpha")
+
+        with mock.patch.object(self.window, "renameNode", return_value="break") as rename:
+            result = self.window.duplicateNode()
+
+        duplicate_dir = self.node_dir / "alpha copy 2"
+        duplicate_file = self.node_dir / "alpha copy 2.rtf"
+        duplicate_child_file = duplicate_dir / "beta.rtf"
+        self.assertEqual("break", result)
+        self.assertTrue(duplicate_dir.is_dir())
+        self.assertEqual(source_file.read_bytes(), duplicate_file.read_bytes())
+        self.assertEqual(child_file.read_bytes(), duplicate_child_file.read_bytes())
+        self.assertEqual("alpha copy 2", self.window.get_node_path(self.window.selected_node))
+        rename.assert_called_once_with()
+
     def test_rename_rejects_paths_outside_node_directory(self):
         self.write_node("newNode33", "Node text")
         outside_dir = self.root / "outside"

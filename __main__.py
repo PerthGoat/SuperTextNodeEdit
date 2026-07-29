@@ -243,6 +243,7 @@ class RTFWindow:
 
         self.node_context_menu = tk.Menu(self.window, tearoff=False)
         self.node_context_menu.add_command(label='Rename', command=self.renameNode)
+        self.node_context_menu.add_command(label='Duplicate', command=self.duplicateNode)
         self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
         self.node_context_menu.add_separator()
@@ -3727,6 +3728,61 @@ class RTFWindow:
         node_pointer = node
         while (node_pointer := self.get_node_parent(node_pointer)) != '':
             self.tree.item(node_pointer, open=True)
+
+    def duplicateNode(self):
+        """Copy the selected node subtree and prompt for the copy's name."""
+        node = self.selected_node
+        if not node:
+            return None
+
+        self.cancelMoveNode()
+        self.cancelInlineRename()
+        source_relative_path = self.get_node_path(node)
+        source_path = self.resolveNodePath(source_relative_path)
+        parent_relative_path = os.path.dirname(os.path.normpath(source_relative_path))
+        if parent_relative_path == '.':
+            parent_relative_path = ''
+
+        source_name = self.tree.item(node)['text']
+        duplicate_name = f'{source_name} copy'
+        copy_number = 2
+        while True:
+            duplicate_relative_path = (
+                os.path.join(parent_relative_path, duplicate_name)
+                if parent_relative_path
+                else duplicate_name
+            )
+            duplicate_path = self.resolveNodePath(duplicate_relative_path)
+            if not os.path.exists(duplicate_path) and not os.path.exists(duplicate_path + '.rtf'):
+                break
+            duplicate_name = f'{source_name} copy {copy_number}'
+            copy_number += 1
+
+        try:
+            shutil.copytree(source_path, duplicate_path)
+            try:
+                shutil.copy2(source_path + '.rtf', duplicate_path + '.rtf')
+            except Exception:
+                shutil.rmtree(duplicate_path)
+                raise
+        except (OSError, shutil.Error) as exc:
+            messagebox.showerror('Error Duplicating Node', str(exc))
+            return None
+
+        parent_node = self.get_node_parent(node)
+        parent_path = (
+            self.resolveNodePath(parent_relative_path)
+            if parent_relative_path
+            else self._node_root_path()
+        )
+        self.populateNodeTree(parent_path, parent_node)
+
+        duplicate_node = self.find_self(duplicate_relative_path)
+        self.tree.selection_set(duplicate_node)
+        self.tree.focus(item=duplicate_node)
+        self.selected_node = duplicate_node
+        self.renameNode()
+        return 'break'
 
     def beginMoveNode(self):
         """Wait for the user to click the node that will become the new parent."""
