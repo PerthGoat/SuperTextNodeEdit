@@ -193,7 +193,7 @@ class RTFWindow:
         self.window.bind('<Destroy>', self.cancelScheduledCenteredTextLayoutRefresh, add='+')
         self.window.protocol('WM_DELETE_WINDOW', self.closeWindow)
         
-        self.tkinter_font = tk.font.Font(family='Consolas', size=12)
+        self.tkinter_font = font.Font(family='Consolas', size=12)
 
         available_fonts = sorted(set(font.families()))
         preferred_fonts = [
@@ -296,7 +296,7 @@ class RTFWindow:
         # end textarea
         
         # holds the currently selected node
-        self.selected_node = ()
+        self.selected_node: str = ''
 
         # holds all of the node item ids
         self.item_ids : list = []
@@ -1362,7 +1362,7 @@ class RTFWindow:
             self.tryReadShowRTF(None)
         return parent
     
-    def LogWithDateTime(self, *strstolog : str):
+    def LogWithDateTime(self, *strstolog: object):
         print(datetime.datetime.now(), ':', *strstolog)
 
     def saveRTFShortcut(self, event=None):
@@ -1512,7 +1512,7 @@ class RTFWindow:
         return item_width
     
     def lazyloadNodes(self, event):
-        selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
+        selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ''
         if len(selected_node) == 0: # if nothing is selected
             return None
 
@@ -1530,7 +1530,7 @@ class RTFWindow:
 
     # lazy unloading counterpart, for saving memory on large notebooks
     def lazyUnloadNodes(self, event):
-        selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
+        selected_node = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ''
         if len(selected_node) == 0: # if nothing is selected
             return None
         
@@ -1559,7 +1559,7 @@ class RTFWindow:
         return biggest_width
     
     def treeOpenClose(self, event):
-        self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
+        self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ''
         biggest_node_width = self.visit_whole_tree('')
         # set the treeview tree column to the width of the biggest entry
         # do not stretch so the tree is forced to expand the column outside its maximum width of the frame
@@ -1633,7 +1633,9 @@ class RTFWindow:
             font_style_parts.append("italic")
 
         if font_style_parts:
-            tag_options = {"font": (key[0], key[1], " ".join(font_style_parts))}
+            tag_options: dict[str, Any] = {
+                "font": (key[0], key[1], " ".join(font_style_parts))
+            }
         else:
             tag_options = {"font": (key[0], key[1])}
 
@@ -2217,7 +2219,7 @@ class RTFWindow:
         rows_spin.bind('<Return>', lambda _: applyTable())
         columns_spin.bind('<Return>', lambda _: applyTable())
         rows_spin.focus_set()
-        rows_spin.selection_range(0, 'end')
+        rows_spin.selection_range(0, len(rows_spin.get()))
 
         return None
 
@@ -2527,7 +2529,11 @@ class RTFWindow:
             return {0: self.DEFAULT_TEXT_COLOR}
 
         entries = []
-        current_color = {"red": None, "green": None, "blue": None}
+        current_color: dict[str, int | None] = {
+            "red": None,
+            "green": None,
+            "blue": None,
+        }
         saw_rgb = False
 
         for token_type, token_value in self.flattenRTFTokens(color_group):
@@ -2765,7 +2771,7 @@ class RTFWindow:
         resampling_filter = getattr(
             getattr(Image, "Resampling", Image),
             "LANCZOS",
-            Image.BICUBIC,
+            3,
         )
         resized_image = original_image.resize((width, height), resampling_filter)
         resized_photo = ImageTk.PhotoImage(resized_image)
@@ -3120,7 +3126,7 @@ class RTFWindow:
         force_new_tab=False,
         reuse_open_tab=True,
     ): # event is not used
-        selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ()
+        selection = self.selected_node = self.tree.selection()[0] if len(self.tree.selection()) != 0 else ''
         
         if len(selection) == 0: # if nothing is selected
             return None
@@ -3145,16 +3151,17 @@ class RTFWindow:
             return open_document
 
         cloned_modified_document = False
+        active_document = self.active_document
         active_document_matches = (
             force_new_tab
-            and self.active_document is not None
-            and self.normalizedDocumentPath(self.active_document.path) == normalized_path
+            and active_document is not None
+            and self.normalizedDocumentPath(active_document.path) == normalized_path
         )
-        if active_document_matches:
+        if active_document_matches and active_document is not None:
             self.captureActiveDocumentState()
             data = self.convertToRTF('1.0', 'end')
-            cloned_modified_document = self.active_document.dirty
-            self.active_document.content_hash = self.documentContentHash(data)
+            cloned_modified_document = active_document.dirty
+            active_document.content_hash = self.documentContentHash(data)
         else:
             try:
                 with open(node_path, 'r', encoding='utf-8') as fi:
@@ -3564,7 +3571,7 @@ class RTFWindow:
         sel = self.selected_node
         
         if len(sel) == 0:
-            sel = ()
+            sel = ''
 
         newNodeName = f'newNode{len(self.tree.get_children(sel))}'
         
@@ -3577,7 +3584,7 @@ class RTFWindow:
         with open(file_path, 'w') as fi:
             fi.write(self.RTF_HEADER + '}')
         
-        self.tree.insert(sel, 'end', text=newNodeName, value='', iid=self.getNextTkinterItemId())
+        self.tree.insert(sel, 'end', text=newNodeName, values=('',), iid=self.getNextTkinterItemId())
 
     def documentIsUnderNodePath(self, document_path, node_path):
         document_path = self.normalizedDocumentPath(document_path)
@@ -3677,7 +3684,7 @@ class RTFWindow:
             return None
 
         path = self.resolveNodePath(self.get_node_path(parent))
-        result = tk.messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
+        result = messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
         
         if result == 'yes':
             children_of_child = self.get_all_children(parent)
@@ -3838,6 +3845,8 @@ class RTFWindow:
         return 'break'
     
     def killUIPopup(self):
+        if self.UI_popup is None:
+            return
         self.UI_popup.destroy()
         self.UI_popup = None
     
@@ -4022,6 +4031,7 @@ class RTFWindow:
         filename = os.path.basename(file)[:-4]
         
         children = dict([[self.tree.item(x)['text'], x] for x in self.tree.get_children()])
+        parent = ''
         
         for s in segments:
             parent = (children := children[s])
@@ -4076,14 +4086,20 @@ class RTFWindow:
         
         old_tree_len = len(self.tree.get_children())
         for fi in files:
-            self.tree.insert(self.find_parent(fi), 'end', text=os.path.basename(fi)[:-4], value='', iid=self.getNextTkinterItemId())
+            self.tree.insert(
+                self.find_parent(fi),
+                'end',
+                text=os.path.basename(fi)[:-4],
+                values=('',),
+                iid=self.getNextTkinterItemId(),
+            )
         
         if old_tree_len == 0 and len(self.tree.get_children()) > 0:
             self.selected_node = self.tree.get_children()[0]
             self.tree.selection_set(self.selected_node) # default select first thing in tree
             self.tree.focus(item=self.selected_node) # focus as well
         elif not self.tree.get_children():
-            self.selected_node = ()
+            self.selected_node = ''
 
 if __name__ == '__main__':
     dev_version_number = 1.16
