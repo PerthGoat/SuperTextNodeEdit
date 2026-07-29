@@ -332,6 +332,41 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.selectDocumentTab(beta_document)
         self.assertEqual("Beta text changed", self.window.text.get("1.0", "end-1c"))
 
+    def test_text_wrapping_is_configured_per_document(self):
+        first_document = self.window.active_document
+
+        self.window.wrap_text_var.set(False)
+        self.window.applyTextWrappingFromMenu()
+
+        self.assertFalse(first_document.wrap_text)
+        self.assertEqual("none", first_document.text.widget.cget("wrap"))
+        self.assertTrue(first_document.text.scrollx.grid_info())
+        self.assertFalse(first_document.text.edit_modified())
+
+        second_document = self.window.createDocumentTab()
+        self.window.selectDocumentTab(second_document)
+
+        self.assertTrue(second_document.wrap_text)
+        self.assertTrue(self.window.wrap_text_var.get())
+        self.assertEqual("word", second_document.text.widget.cget("wrap"))
+        self.assertFalse(second_document.text.scrollx.grid_info())
+
+        self.window.selectDocumentTab(first_document)
+
+        self.assertFalse(self.window.wrap_text_var.get())
+        self.assertEqual("none", self.window.text.widget.cget("wrap"))
+
+    def test_text_wrapping_shortcut_toggles_only_active_document(self):
+        first_document = self.window.active_document
+        second_document = self.window.createDocumentTab()
+        self.window.selectDocumentTab(second_document)
+
+        self.assertEqual("break", self.window.toggleTextWrapping(SimpleNamespace()))
+
+        self.assertFalse(second_document.wrap_text)
+        self.assertTrue(first_document.wrap_text)
+        self.assertFalse(self.window.wrap_text_var.get())
+
     def test_closing_a_modified_tab_can_discard_and_leaves_placeholder(self):
         note_file = self.write_node("alpha", "Alpha text")
         self.window.populateNodeTree()

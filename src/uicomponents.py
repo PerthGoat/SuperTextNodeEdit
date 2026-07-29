@@ -17,7 +17,8 @@ class ScrollableText(tk.Frame):
         self.grid_columnconfigure(0, weight=1)
         
         # pass styling arguments to the text
-        text = tk.Text(self, **kwargs, wrap='word')
+        wrap = kwargs.pop('wrap', 'word')
+        text = tk.Text(self, **kwargs, wrap=wrap)
         self.widget = text
         text.grid(row=0, column=0, sticky='nsew') # fill available space with text
         
@@ -25,6 +26,13 @@ class ScrollableText(tk.Frame):
         scrolly = tk.Scrollbar(self, command=text.yview)
         scrolly.grid(row=0, column=1, sticky='nse') # won't auto-expand because column isn't configured with a weight
         text.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
+
+        # Unwrapped documents need horizontal navigation. Keep the scrollbar
+        # out of the layout while wrapping is enabled so wrapped documents do
+        # not lose vertical space.
+        self.scrollx = tk.Scrollbar(self, orient='horizontal', command=text.xview)
+        text.config(xscrollcommand=self.scrollx.set)
+        self.set_wrap(wrap != 'none')
         
         # set some functions to be that of text because the text object is the main one being interacted with
         self.configure = text.configure
@@ -62,6 +70,14 @@ class ScrollableText(tk.Frame):
         self.tag_ranges = text.tag_ranges
         self.update_idletasks = text.update_idletasks
         self.winfo_width = text.winfo_width
+
+    def set_wrap(self, enabled):
+        """Enable word wrapping and show horizontal scrolling only as needed."""
+        self.widget.configure(wrap='word' if enabled else 'none')
+        if enabled:
+            self.scrollx.grid_remove()
+        else:
+            self.scrollx.grid(row=1, column=0, sticky='ew')
 
 # Scrollable treeview, to add horizontal and vertical scrolling to the tree view
 class ScrollableTreeView(tk.Frame):

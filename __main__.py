@@ -84,6 +84,7 @@ class OpenDocument:
     })
     current_text_cursor: str = 'xterm'
     image_resize_state: Any = None
+    wrap_text: bool = True
     dirty: bool = False
     loading: bool = False
     content_hash: str = ''
@@ -213,6 +214,7 @@ class RTFWindow:
         self.bold_menu_var = tk.BooleanVar(value=False)
         self.italic_menu_var = tk.BooleanVar(value=False)
         self.center_menu_var = tk.BooleanVar(value=False)
+        self.wrap_text_var = tk.BooleanVar(value=True)
         self.createMenuBar()
         
         # window design goes here
@@ -463,6 +465,8 @@ class RTFWindow:
 
         if select_tab and self.editor_tabs.select() != document.tab_id:
             self.editor_tabs.select(document.tab_id)
+        document.text.set_wrap(document.wrap_text)
+        self.wrap_text_var.set(document.wrap_text)
         self.setToolbarStyleVars(self.typing_style)
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
@@ -817,6 +821,15 @@ class RTFWindow:
         )
         menu_bar.add_cascade(label='Edit', menu=edit_menu)
 
+        view_menu = tk.Menu(menu_bar, tearoff=False)
+        view_menu.add_checkbutton(
+            label='Wrap Text',
+            accelerator='Alt+Z',
+            variable=self.wrap_text_var,
+            command=self.applyTextWrappingFromMenu,
+        )
+        menu_bar.add_cascade(label='View', menu=view_menu)
+
         node_menu = tk.Menu(menu_bar, tearoff=False)
         node_menu.add_command(label='Update', command=self.populateNodeTree)
         node_menu.add_separator()
@@ -879,6 +892,37 @@ class RTFWindow:
         self.window.bind_all('<Control-W>', self.closeCurrentTab)
         self.window.bind_all('<Control-Shift-f>', self.showSearchDialog)
         self.window.bind_all('<Control-Shift-F>', self.showSearchDialog)
+        self.window.bind_all('<Alt-z>', self.toggleTextWrapping)
+        self.window.bind_all('<Alt-Z>', self.toggleTextWrapping)
+
+    def setDocumentTextWrapping(self, document, enabled):
+        """Set wrapping for one document without changing its edit state."""
+        if document is None:
+            return None
+        document.wrap_text = bool(enabled)
+        document.text.set_wrap(document.wrap_text)
+        if document is self.active_document:
+            self.wrap_text_var.set(document.wrap_text)
+            self.scheduleCenteredTextLayoutRefresh()
+            self.scheduleTableLayoutRefresh()
+        return document.wrap_text
+
+    def applyTextWrappingFromMenu(self):
+        """Apply the View menu state to only the active document."""
+        return self.setDocumentTextWrapping(
+            self.active_document,
+            self.wrap_text_var.get(),
+        )
+
+    def toggleTextWrapping(self, event=None):
+        """Toggle wrapping for the active document (used by Alt+Z)."""
+        if self.active_document is None:
+            return 'break' if event is not None else None
+        self.setDocumentTextWrapping(
+            self.active_document,
+            not self.active_document.wrap_text,
+        )
+        return 'break' if event is not None else self.active_document.wrap_text
 
     def showSearchDialog(self, event=None):
         if self.search_popup is not None:
