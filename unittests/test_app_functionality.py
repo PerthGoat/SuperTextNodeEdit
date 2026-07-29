@@ -886,6 +886,21 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(r"Hello ", rtf)
         self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
 
+    def test_formatting_at_document_start_does_not_spill_after_round_trip(self):
+        self.window.text.insert("1.0", "Bold plain text")
+        self.window.applyStylePropertyToRange("1.0", "1.4", "bold", True)
+
+        rtf = self.window.convertToRTF("1.0", "end")
+
+        self.window.text.delete("1.0", "end")
+        self.window.style_tags = {}
+        self.window.style_tag_names = {}
+        self.window.style_tag_counter = 0
+        self.window.displayNestedRTFStructure(app.RTFParser(rtf).parseme())
+
+        self.assertTrue(self.window.getTextStyleAt("1.0")["bold"])
+        self.assertFalse(self.window.getTextStyleAt("1.5")["bold"])
+
     def test_centered_text_is_tagged_and_exported_to_rtf(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         self.window.text.insert("1.0", "Title")

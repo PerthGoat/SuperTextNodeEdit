@@ -3356,7 +3356,12 @@ class RTFWindow:
                 continue
 
             if token_type == 'tagon' and token_value in self.style_tags:
-                active_style_tags.append(token_value)
+                # A dump that starts exactly at a tag boundary includes a
+                # ``tagon`` event for a tag already captured at ``start``.
+                # Keep the active tags unique so the matching ``tagoff`` fully
+                # closes the style instead of leaking it into later text.
+                if token_value not in active_style_tags:
+                    active_style_tags.append(token_value)
                 continue
 
             if token_type == 'tagoff' and token_value in active_style_tags:
