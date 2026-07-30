@@ -512,6 +512,11 @@ class RTFWindow:
         self.typing_style = document.typing_style.copy()
         self.current_text_cursor = document.current_text_cursor
         self.image_resize_state = document.image_resize_state
+        # Cursor state is cached per document, but Tk keeps the configured
+        # cursor on the widget itself. Reapply it when activating a document
+        # so replacing a note in an existing tab cannot leave a stale resize
+        # cursor on the text widget while the cache already says "xterm".
+        self.configureTextCursor(self.current_text_cursor, force=True)
 
         if select_tab and self.editor_tabs.select() != document.tab_id:
             self.editor_tabs.select(document.tab_id)
@@ -3558,7 +3563,7 @@ class RTFWindow:
             return 'size_ne_sw'
         return ''
 
-    def configureTextCursor(self, cursor):
+    def configureTextCursor(self, cursor, force=False):
         cursor = cursor or self.TEXT_CURSOR
         if (
             cursor == self.TEXT_CURSOR
@@ -3566,7 +3571,7 @@ class RTFWindow:
             and self.format_painter_document is self.active_document
         ):
             cursor = self.FORMAT_PAINTER_CURSOR
-        if cursor == self.current_text_cursor:
+        if not force and cursor == self.current_text_cursor:
             return None
 
         try:

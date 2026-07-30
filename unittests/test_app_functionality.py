@@ -1734,6 +1734,20 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         configure_mock.assert_called_once_with(cursor=self.window.TEXT_CURSOR)
         self.assertEqual(self.window.TEXT_CURSOR, self.window.current_text_cursor)
 
+    def test_activating_document_reapplies_cached_cursor_to_text_widget(self):
+        document = self.window.active_document
+        self.window.text.configure(cursor="sb_h_double_arrow")
+        self.window.current_text_cursor = "sb_h_double_arrow"
+        document.current_text_cursor = self.window.TEXT_CURSOR
+
+        self.window.activateDocument(document)
+
+        self.assertEqual(
+            self.window.TEXT_CURSOR,
+            self.window.text.widget.cget("cursor"),
+        )
+        self.assertEqual(self.window.TEXT_CURSOR, self.window.current_text_cursor)
+
 
 if __name__ == "__main__":
     unittest.main()
