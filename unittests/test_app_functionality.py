@@ -16,8 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "__main__.py"
 
 spec = importlib.util.spec_from_file_location("supertext_app", APP_PATH)
+if spec is None or spec.loader is None:
+    raise RuntimeError(f"Could not load application module from {APP_PATH}")
 app = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
 spec.loader.exec_module(app)
 
 
@@ -1000,6 +1001,144 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         )
         context_menu.entryconfigure.assert_any_call(
             "Copy Table as HTML",
+            state="normal",
+        )
+        context_menu.entryconfigure.assert_any_call(
+            "Add Row Below",
+            state="normal",
+        )
+        context_menu.entryconfigure.assert_any_call(
+            "Add Column Right",
+            state="normal",
+        )
+        context_menu.entryconfigure.assert_any_call(
+            "Reformat Table",
+            state="normal",
+        )
+
+    def test_add_table_row_below_clicked_row_keeps_header_separator_in_place(self):
+        self.window.text.insert(
+            "1.0",
+            self.window.buildTableText(3, 2, has_header=True),
+        )
+        self.window.context_table_range = (1, 4)
+        self.window.context_table_line = 1
+
+        result = self.window.addTableRowBelow()
+
+        self.assertEqual("break", result)
+        self.assertEqual(
+            "| Col A\t| Col B\t|\n"
+            "| ------\t| ------\t|\n"
+            "| \t| \t|\n"
+            "| Cell 1\t| Cell 2\t|\n"
+            "| Cell 3\t| Cell 4\t|\n",
+            self.window.text.get("1.0", "end"),
+        )
+        self.assertEqual((1, 5), self.window.context_table_range)
+
+    def test_add_table_column_right_of_clicked_cell_updates_every_row(self):
+        self.window.text.insert(
+            "1.0",
+            self.window.buildTableText(3, 2, has_header=True),
+        )
+        italic_style = self.window.defaultTextStyle()
+        italic_style["italic"] = True
+        italic_tag = self.window.getStyleTag(italic_style)
+        old_cell_index = self.window.text.widget.search(
+            "Cell 2",
+            "1.0",
+            "end",
+        )
+        self.window.text.tag_add(
+            italic_tag,
+            old_cell_index,
+            f"{old_cell_index}+6c",
+        )
+        self.window.context_table_range = (1, 4)
+        self.window.context_table_line = 3
+        self.window.context_table_column = 0
+
+        result = self.window.addTableColumnRight()
+
+        self.assertEqual("break", result)
+        self.assertEqual(
+            "| Col A\t| \t| Col B\t|\n"
+            "| ------\t| ---\t| ------\t|\n"
+            "| Cell 1\t| \t| Cell 2\t|\n"
+            "| Cell 3\t| \t| Cell 4\t|\n",
+            self.window.text.get("1.0", "end"),
+        )
+        new_cell_index = self.window.text.widget.search(
+            "Cell 2",
+            "1.0",
+            "end",
+        )
+        self.assertIn(italic_tag, self.window.text.tag_names(new_cell_index))
+        self.assertIn(
+            italic_tag,
+            self.window.text.tag_names(f"{new_cell_index}+5c"),
+        )
+
+    def test_reformat_table_repairs_pipes_tabs_and_uneven_rows(self):
+        self.window.text.insert(
+            "1.0",
+            "Name | Value\n"
+            "--- | -----\n"
+            "Alpha\t1\n"
+            "Beta | 2 | Extra",
+        )
+        bold_style = self.window.defaultTextStyle()
+        bold_style["bold"] = True
+        bold_tag = self.window.getStyleTag(bold_style)
+        self.window.text.tag_add(bold_tag, "3.0", "3.5")
+        self.window.context_table_range = (1, 4)
+        self.window.context_table_line = 3
+
+        self.assertEqual(
+            (1, 4),
+            self.window.repairableTableRangeAtIndex("3.2"),
+        )
+        result = self.window.reformatTable()
+
+        self.assertEqual("break", result)
+        self.assertEqual(
+            "| Name\t| Value\t| \t|\n"
+            "| -----\t| -----\t| -----\t|\n"
+            "| Alpha\t| 1\t| \t|\n"
+            "| Beta\t| 2\t| Extra\t|\n",
+            self.window.text.get("1.0", "end"),
+        )
+        self.assertEqual((1, 4), self.window.tableRangeAtIndex("3.2"))
+        self.assertIn(bold_tag, self.window.text.tag_names("3.2"))
+        self.assertIn(bold_tag, self.window.text.tag_names("3.6"))
+        self.assertNotIn(bold_tag, self.window.text.tag_names("3.7"))
+
+    def test_context_menu_recognizes_pipe_only_table_for_reformat(self):
+        self.window.text.insert(
+            "1.0",
+            "Name | Value\n"
+            "Alpha | 1",
+        )
+        context_menu = mock.Mock()
+        self.window.text_context_menu = context_menu
+        event = SimpleNamespace(x=1, y=1, x_root=110, y_root=220)
+        original_index = self.window.text.index
+
+        with mock.patch.object(
+            self.window.text,
+            "index",
+            side_effect=lambda index: (
+                "1.8" if str(index).startswith("@") else original_index(index)
+            ),
+        ):
+            result = self.window.showTextContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertEqual((1, 2), self.window.context_table_range)
+        self.assertEqual(1, self.window.context_table_column)
+        context_menu.entryconfigure.assert_any_call(
+            "Reformat Table",
             state="normal",
         )
 

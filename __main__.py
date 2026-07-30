@@ -324,6 +324,19 @@ class RTFWindow:
         )
         self.text_context_menu.add_separator()
         self.text_context_menu.add_command(
+            label='Add Row Below',
+            command=self.addTableRowBelow,
+        )
+        self.text_context_menu.add_command(
+            label='Add Column Right',
+            command=self.addTableColumnRight,
+        )
+        self.text_context_menu.add_command(
+            label='Reformat Table',
+            command=self.reformatTable,
+        )
+        self.text_context_menu.add_separator()
+        self.text_context_menu.add_command(
             label='Insert Hyperlink...',
             command=self.showInsertHyperlinkDialog,
         )
@@ -838,7 +851,12 @@ class RTFWindow:
     def showTextContextMenu(self, event):
         """Show editing actions for the document at the pointer position."""
         pointer_index = self.text.index(f'@{event.x},{event.y}')
-        self.context_table_range = self.tableRangeAtIndex(pointer_index)
+        self.context_table_range = (
+            self.repairableTableRangeAtIndex(pointer_index)
+            or self.tableRangeAtIndex(pointer_index)
+        )
+        self.context_table_line = int(pointer_index.split('.')[0])
+        self.context_table_column = self.tableColumnAtIndex(pointer_index)
         image_hit = self.embeddedImageAtPoint(event.x, event.y)
         self.context_image_name = image_hit["name"] if image_hit else None
         selection = self.text.tag_ranges('sel')
@@ -867,6 +885,18 @@ class RTFWindow:
         )
         self.text_context_menu.entryconfigure(
             'Copy Table as HTML',
+            state=table_state,
+        )
+        self.text_context_menu.entryconfigure(
+            'Add Row Below',
+            state=table_state,
+        )
+        self.text_context_menu.entryconfigure(
+            'Add Column Right',
+            state=table_state,
+        )
+        self.text_context_menu.entryconfigure(
+            'Reformat Table',
             state=table_state,
         )
         self.text_context_menu.entryconfigure(
@@ -2735,25 +2765,84 @@ class RTFWindow:
     def lineHasTableCells(self, line_number):
         return '\t' in self.text.get(f'{line_number}.0', f'{line_number}.end')
 
-    def tableRowCells(self, line_number):
-        line = self.text.get(f'{line_number}.0', f'{line_number}.end')
-        if '\t' not in line:
-            return []
-
-        parts = line.split('\t')
-        if parts and parts[-1].strip() == '|':
-            parts.pop()
+    def tableCellPartsFromText(self, line):
+        """Return cell text and source spans from tab- or pipe-delimited text."""
+        if '\t' in line:
+            segment_starts = [0]
+            segment_finishes = []
+            for position, character in enumerate(line):
+                if character == '\t':
+                    segment_finishes.append(position)
+                    segment_starts.append(position + 1)
+            segment_finishes.append(len(line))
+            segments = list(zip(segment_starts, segment_finishes))
+            if (
+                segments
+                and line[segments[-1][0]:segments[-1][1]].strip() in ('', '|')
+            ):
+                segments.pop()
+        elif '|' in line:
+            pipe_positions = [
+                position
+                for position, character in enumerate(line)
+                if character == '|'
+            ]
+            boundaries = [-1, *pipe_positions, len(line)]
+            segments = [
+                (boundaries[index] + 1, boundaries[index + 1])
+                for index in range(len(boundaries) - 1)
+            ]
+            if segments and not line[segments[0][0]:segments[0][1]].strip():
+                segments.pop(0)
+            if segments and not line[segments[-1][0]:segments[-1][1]].strip():
+                segments.pop()
+        else:
+            return [], []
 
         cells = []
-        for part in parts:
-            part = part.strip()
-            if part.startswith('|'):
-                part = part[1:].strip()
-            if part.endswith('|'):
-                part = part[:-1].strip()
-            cells.append(part)
+        spans = []
+        for start, finish in segments:
+            while start < finish and line[start].isspace():
+                start += 1
+            while finish > start and line[finish - 1].isspace():
+                finish -= 1
+            if start < finish and line[start] == '|':
+                start += 1
+                while start < finish and line[start].isspace():
+                    start += 1
+            if finish > start and line[finish - 1] == '|':
+                finish -= 1
+                while finish > start and line[finish - 1].isspace():
+                    finish -= 1
+            cells.append(line[start:finish])
+            spans.append((start, finish))
+        return cells, spans
 
+    def tableCellsFromText(self, line):
+        """Parse the app's tab rows and conventional pipe-delimited rows."""
+        cells, _spans = self.tableCellPartsFromText(line)
         return cells
+
+    def tableCellSpansFromText(self, line):
+        """Return source character spans for the parsed cell contents."""
+        _cells, spans = self.tableCellPartsFromText(line)
+        return spans
+
+    def tableRowCells(self, line_number):
+        line = self.text.get(f'{line_number}.0', f'{line_number}.end')
+        return self.tableCellsFromText(line)
+
+    def lineHasRepairableTableCells(self, line_number):
+        line = self.text.get(f'{line_number}.0', f'{line_number}.end')
+        cells = self.tableCellsFromText(line)
+        return (
+            len(cells) >= 2
+            or (
+                len(cells) == 1
+                and line.strip().startswith('|')
+                and line.strip().endswith('|')
+            )
+        )
 
     def isTableSeparatorCells(self, cells):
         return bool(cells) and all(re.fullmatch(r'-+', cell or '') for cell in cells)
@@ -2775,6 +2864,50 @@ class RTFWindow:
 
         return start_line, finish_line
 
+    def repairableTableRangeAtIndex(self, index):
+        """Return adjacent rows that can be normalized into a table."""
+        line_number = int(self.text.index(index).split('.')[0])
+        if not self.lineHasRepairableTableCells(line_number):
+            return None
+
+        start_line = line_number
+        while (
+            start_line > 1
+            and self.lineHasRepairableTableCells(start_line - 1)
+        ):
+            start_line -= 1
+
+        finish_line = line_number
+        last_line = int(self.text.index('end-1c').split('.')[0])
+        while (
+            finish_line < last_line
+            and self.lineHasRepairableTableCells(finish_line + 1)
+        ):
+            finish_line += 1
+
+        return start_line, finish_line
+
+    def tableColumnAtIndex(self, index):
+        """Return the zero-based table column under a text index."""
+        resolved_index = self.text.index(index)
+        line_number, character = (
+            int(value)
+            for value in resolved_index.split('.')
+        )
+        line = self.text.get(f'{line_number}.0', f'{line_number}.end')
+        cells = self.tableCellsFromText(line)
+        if not cells:
+            return 0
+
+        prefix = line[:character]
+        if '\t' in line:
+            column = prefix.count('\t')
+        else:
+            column = prefix.count('|')
+            if line.lstrip().startswith('|'):
+                column -= 1
+        return min(len(cells) - 1, max(0, column))
+
     def tableRowsForExport(self, table_range):
         """Return table rows and whether the first row is a header."""
         start_line, finish_line = table_range
@@ -2792,11 +2925,261 @@ class RTFWindow:
         if table_range is not None:
             start_line, finish_line = table_range
             if all(
-                self.lineHasTableCells(line_number)
+                self.lineHasRepairableTableCells(line_number)
                 for line_number in range(start_line, finish_line + 1)
             ):
                 return table_range
-        return self.tableRangeAtIndex('insert')
+        return (
+            self.repairableTableRangeAtIndex('insert')
+            or self.tableRangeAtIndex('insert')
+        )
+
+    def normalizedTableRows(self, table_range, insert_column=None):
+        """Return equally sized rows ready for the app's normal table syntax."""
+        start_line, finish_line = table_range
+        rows = [
+            self.tableRowCells(line_number)
+            for line_number in range(start_line, finish_line + 1)
+        ]
+        column_count = max((len(cells) for cells in rows), default=1)
+        has_header = len(rows) > 1 and self.isTableSeparatorCells(rows[1])
+        rows = [
+            cells + [''] * (column_count - len(cells))
+            for cells in rows
+        ]
+
+        if insert_column is not None:
+            insert_column = min(column_count, max(0, insert_column))
+            for row_number, cells in enumerate(rows):
+                value = '---' if has_header and row_number == 1 else ''
+                cells.insert(insert_column, value)
+            column_count += 1
+
+        if has_header:
+            widths = [3] * column_count
+            for row_number, cells in enumerate(rows):
+                if row_number == 1:
+                    continue
+                for column_number, cell in enumerate(cells):
+                    widths[column_number] = max(
+                        widths[column_number],
+                        len(cell),
+                    )
+            rows[1] = ['-' * width for width in widths]
+
+        return rows
+
+    def formattedTableRowWithCellSpans(self, cells):
+        """Format a row and report where each cell's content was placed."""
+        pieces = ['| ']
+        spans = []
+        position = 2
+        for column_number, cell in enumerate(cells):
+            start = position
+            pieces.append(cell)
+            position += len(cell)
+            spans.append((start, position))
+            pieces.append('\t|')
+            position += 2
+            if column_number < len(cells) - 1:
+                pieces.append(' ')
+                position += 1
+        return ''.join(pieces), spans
+
+    def tableCellTagRuns(self, line_number, spans):
+        """Capture rich-text tags relative to each cell's content."""
+        cell_runs = []
+        for start, finish in spans:
+            runs = []
+            active_tags = None
+            run_start = 0
+            for position in range(start, finish):
+                tags = tuple(
+                    tag
+                    for tag in self.text.tag_names(
+                        f'{line_number}.{position}'
+                    )
+                    if (
+                        tag != 'sel'
+                        and not self.isTableTag(tag)
+                        and not self.isAlignmentPaddingTag(tag)
+                    )
+                )
+                if active_tags is None:
+                    active_tags = tags
+                    run_start = position - start
+                elif tags != active_tags:
+                    if active_tags:
+                        runs.append((
+                            run_start,
+                            position - start,
+                            active_tags,
+                        ))
+                    active_tags = tags
+                    run_start = position - start
+            if active_tags:
+                runs.append((run_start, finish - start, active_tags))
+            cell_runs.append(runs)
+        return cell_runs
+
+    def replaceTableRange(
+        self,
+        table_range,
+        rows,
+        row_sources=None,
+        column_sources=None,
+    ):
+        """Replace a table block as one undoable edit and refresh its layout."""
+        start_line, finish_line = table_range
+        source_tag_runs = []
+        for line_number in range(start_line, finish_line + 1):
+            line = self.text.get(f'{line_number}.0', f'{line_number}.end')
+            source_tag_runs.append(
+                self.tableCellTagRuns(
+                    line_number,
+                    self.tableCellSpansFromText(line),
+                )
+            )
+
+        formatted_rows = [
+            self.formattedTableRowWithCellSpans(cells)
+            for cells in rows
+        ]
+        replacement = '\n'.join(row_text for row_text, _spans in formatted_rows)
+        self.text.edit_separator()
+        self.text.delete(f'{start_line}.0', f'{finish_line}.end')
+        self.text.insert(f'{start_line}.0', replacement)
+
+        if row_sources is None:
+            row_sources = list(range(len(rows)))
+        if column_sources is None:
+            column_sources = list(range(max((len(row) for row in rows), default=0)))
+        for row_number, source_row in enumerate(row_sources):
+            if source_row is None or source_row >= len(source_tag_runs):
+                continue
+            target_line = start_line + row_number
+            target_spans = formatted_rows[row_number][1]
+            for column_number, source_column in enumerate(column_sources):
+                if (
+                    source_column is None
+                    or source_column >= len(source_tag_runs[source_row])
+                    or column_number >= len(target_spans)
+                ):
+                    continue
+                target_start, target_finish = target_spans[column_number]
+                target_length = target_finish - target_start
+                for run_start, run_finish, tags in (
+                    source_tag_runs[source_row][source_column]
+                ):
+                    run_finish = min(run_finish, target_length)
+                    if run_finish <= run_start:
+                        continue
+                    for tag in tags:
+                        self.text.tag_add(
+                            tag,
+                            f'{target_line}.{target_start + run_start}',
+                            f'{target_line}.{target_start + run_finish}',
+                        )
+        self.text.edit_separator()
+        self.context_table_range = (
+            start_line,
+            start_line + len(rows) - 1,
+        )
+        self.refreshTableLayout()
+        self.markCurrentDocumentModified()
+        self.text.focus_set()
+        return self.context_table_range
+
+    def reformatTable(self, event=None):
+        """Restore missing delimiters and align every row to one column count."""
+        table_range = self.currentTableRangeForCopy()
+        if table_range is None:
+            return None
+
+        rows = self.normalizedTableRows(table_range)
+        updated_range = self.replaceTableRange(table_range, rows)
+        target_line = min(
+            getattr(self, 'context_table_line', table_range[0]),
+            updated_range[1],
+        )
+        self.text.mark_set('insert', f'{target_line}.0')
+        self.text.see('insert')
+        return 'break'
+
+    def addTableRowBelow(self, event=None):
+        """Insert an empty row below the row targeted by the context menu."""
+        table_range = self.currentTableRangeForCopy()
+        if table_range is None:
+            return None
+
+        start_line, finish_line = table_range
+        target_line = getattr(
+            self,
+            'context_table_line',
+            int(self.text.index('insert').split('.')[0]),
+        )
+        target_line = min(finish_line, max(start_line, target_line))
+        rows = self.normalizedTableRows(table_range)
+        row_offset = target_line - start_line + 1
+        if len(rows) > 1 and self.isTableSeparatorCells(rows[1]):
+            row_offset = max(2, row_offset)
+        rows.insert(row_offset, [''] * len(rows[0]))
+        row_sources: list[int | None] = list(
+            range(finish_line - start_line + 1)
+        )
+        row_sources.insert(row_offset, None)
+        self.replaceTableRange(
+            table_range,
+            rows,
+            row_sources=row_sources,
+        )
+        inserted_line = start_line + row_offset
+        self.context_table_line = inserted_line
+        self.text.mark_set('insert', f'{inserted_line}.2')
+        self.text.see('insert')
+        return 'break'
+
+    def addTableColumnRight(self, event=None):
+        """Insert an empty column to the right of the targeted table cell."""
+        table_range = self.currentTableRangeForCopy()
+        if table_range is None:
+            return None
+
+        target_column = getattr(
+            self,
+            'context_table_column',
+            self.tableColumnAtIndex('insert'),
+        )
+        old_column_count = max(
+            (
+                len(self.tableRowCells(line_number))
+                for line_number in range(table_range[0], table_range[1] + 1)
+            ),
+            default=1,
+        )
+        insert_column = min(
+            old_column_count,
+            max(0, target_column + 1),
+        )
+        rows = self.normalizedTableRows(
+            table_range,
+            insert_column=insert_column,
+        )
+        column_sources: list[int | None] = list(range(old_column_count))
+        column_sources.insert(insert_column, None)
+        updated_range = self.replaceTableRange(
+            table_range,
+            rows,
+            column_sources=column_sources,
+        )
+        self.context_table_column = insert_column
+        target_line = min(
+            getattr(self, 'context_table_line', table_range[0]),
+            updated_range[1],
+        )
+        self.text.mark_set('insert', f'{target_line}.0')
+        self.text.see('insert')
+        return 'break'
 
     def tableAsTSV(self, table_range):
         rows, _has_header = self.tableRowsForExport(table_range)

@@ -14,8 +14,9 @@ APP_PATH = ROOT / "__main__.py"
 ARTIFACT_DIR = ROOT / "unittests" / "artifacts" / "visual"
 
 spec = importlib.util.spec_from_file_location("supertext_app_visual", APP_PATH)
+if spec is None or spec.loader is None:
+    raise RuntimeError(f"Could not load application module from {APP_PATH}")
 app = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
 spec.loader.exec_module(app)
 
 
@@ -126,9 +127,9 @@ class TestVisualSmoke(unittest.TestCase):
                 screenshot_path = ARTIFACT_DIR / "main_window.png"
                 screenshot.save(screenshot_path)
 
-                single_color = screenshot.getpixel((0, 0))
-                baseline = screenshot.copy()
-                baseline.paste(single_color, [0, 0, *screenshot.size])
+                baseline = screenshot.crop((0, 0, 1, 1)).resize(
+                    screenshot.size
+                )
                 self.assertIsNotNone(ImageChops.difference(screenshot, baseline).getbbox())
             finally:
                 window.window.destroy()

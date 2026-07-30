@@ -1,8 +1,8 @@
 # TODO: Add Other Operating Systems for this
+import ctypes
+import ctypes.wintypes
 import os
-import tkinter as tk
-import tkinter.messagebox
-import importlib
+from tkinter import messagebox
 
 #from PIL import Image
 #import io
@@ -16,9 +16,9 @@ class Clipboard:
     RTF_NO_OBJ=49514
     def __init__(self):
         platforms = {
-            'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, self.__wingetclipboard, self.__winclearclipboard, lambda : [(lambda : globals().update({'ctypes': importlib.import_module('ctypes')}))(), (lambda : globals().update({'ctypes.wintypes': importlib.import_module('ctypes.wintypes')}))()]],
-            'posix': [self.__linuxclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard, lambda : None],
-            'darwin': [self.__macosclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard, lambda : None]
+            'nt': [self.__winclipboard, self.__winopenclipboard, self.__wincloseclipboard, self.__wingetclipboard, self.__winclearclipboard],
+            'posix': [self.__linuxclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard],
+            'darwin': [self.__macosclipboard, self.__noopclipboard, self.__noopclipboard, self.__unsupportedgetclipboard, self.__noopclipboard]
         }
         #print(globals)
         platform_specific = platforms[os.name]
@@ -30,8 +30,6 @@ class Clipboard:
         self.get_file_paths = self.__wingetfilepaths if os.name == 'nt' else lambda: []
         self.register_format = self.__winregisterformat if os.name == 'nt' else lambda _name: None
         self.clear_clipboard = platform_specific[4]
-        # do imports
-        platform_specific[5]()
     
     def __winopenclipboard(self):
         OpenClipboard = ctypes.windll.user32.OpenClipboard
@@ -58,7 +56,7 @@ class Clipboard:
     # takes data in bytes
     def __winclipboard(self, data, data_type):
         if type(data) != type(b''): # make sure data contains only bytes
-            tk.messagebox.showerror(title='Wrong data', message=f'Need to be passed bytes for clipboard, not type {type(data)}')
+            messagebox.showerror(title='Wrong data', message=f'Need to be passed bytes for clipboard, not type {type(data)}')
         
         # start constants for Windows clipboard API
         GMEM_MOVEABLE = 0x0002
@@ -185,7 +183,11 @@ class Clipboard:
 
         data_lock = GlobalLock(res)
         text = ctypes.c_char_p(data_lock)
-        val = text.value.decode('ascii')
+        value = text.value
+        if value is None:
+            GlobalUnlock(data_lock)
+            return None
+        val = value.decode('ascii')
         GlobalUnlock(data_lock)
 
         return val
@@ -214,10 +216,10 @@ class Clipboard:
 
 
     def __linuxclipboard(self):
-        tk.messagebox.showerror(title='OS Unsupported', message='Linux is not yet supported for clipboard copy')
+        messagebox.showerror(title='OS Unsupported', message='Linux is not yet supported for clipboard copy')
     
     def __macosclipboard(self):
-        tk.messagebox.showerror(title='OS Unsupported', message='MacOS is not yet supported for clipboard copy')
+        messagebox.showerror(title='OS Unsupported', message='MacOS is not yet supported for clipboard copy')
 
     def __noopclipboard(self):
         pass

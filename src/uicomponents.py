@@ -1,6 +1,8 @@
 
 import tkinter as tk
 from tkinter import ttk
+from collections.abc import Callable
+from typing import Any, Literal, overload
 
 # This class exists to create a scrollable text object
 # which is just a multi-line text box with a scrollbar taped to it
@@ -35,13 +37,11 @@ class ScrollableText(tk.Frame):
         self.set_wrap(wrap != 'none')
         
         # set some functions to be that of text because the text object is the main one being interacted with
-        self.configure = text.configure
         self.delete = text.delete
         self.insert = text.insert
         self.get = text.get
         self.see = text.see
         self.dump = text.dump
-        self.bind = text.bind
         self.focus_set = text.focus_set
         self.bbox = text.bbox
         self.dlineinfo = text.dlineinfo
@@ -80,6 +80,40 @@ class ScrollableText(tk.Frame):
         else:
             self.scrollx.grid(row=1, column=0, sticky='ew')
 
+    def configure(self, cnf=None, **kwargs) -> Any:
+        """Forward configuration to the inner text widget."""
+        return self.widget.configure(cnf, **kwargs)
+
+    config = configure
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None = None,
+        func: Callable[[tk.Event[tk.Misc]], object] | None = None,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> str: ...
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    @overload
+    def bind(
+        self,
+        *,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    def bind(self, sequence=None, func=None, add=None) -> Any:
+        """Bind document events on the inner text widget."""
+        return self.widget.bind(sequence, func, add)
+
 # Scrollable treeview, to add horizontal and vertical scrolling to the tree view
 class ScrollableTreeView(tk.Frame):
     def __init__(self, parent, width, **kwargs):
@@ -89,8 +123,8 @@ class ScrollableTreeView(tk.Frame):
         super().__init__(parent, width=width)
         
         # stops treeview from expanding the containing frame
-        self.pack_propagate(0)
-        self.grid_propagate(0)
+        self.pack_propagate(False)
+        self.grid_propagate(False)
         
         # needed for proper reactive UI resizing
         self.grid_rowconfigure(0, weight=1)
@@ -112,7 +146,6 @@ class ScrollableTreeView(tk.Frame):
         
         self.heading = tree.heading
         self.column = tree.column
-        self.bind = tree.bind
         self.bbox = tree.bbox
         self.delete = tree.delete
         self.get_children = tree.get_children
@@ -123,8 +156,41 @@ class ScrollableTreeView(tk.Frame):
         self.parent = tree.parent
         self.identify = tree.identify
         self.selection_remove = tree.selection_remove
-        self.configure = tree.configure
         self.xview = tree.xview
         self.move = tree.move
         self.focus = tree.focus
         self.see = tree.see
+
+    def configure(self, cnf=None, **kwargs) -> Any:
+        """Forward configuration to the inner tree widget."""
+        return self.widget.configure(cnf, **kwargs)
+
+    config = configure
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None = None,
+        func: Callable[[tk.Event[tk.Misc]], object] | None = None,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> str: ...
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    @overload
+    def bind(
+        self,
+        *,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    def bind(self, sequence=None, func=None, add=None) -> Any:
+        """Bind tree events on the inner tree widget."""
+        return self.widget.bind(sequence, func, add)

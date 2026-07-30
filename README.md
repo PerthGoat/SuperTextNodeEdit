@@ -58,7 +58,10 @@ then switches off; press **Escape** to cancel it without applying.
 Tables can be copied in interoperable formats by right-clicking anywhere in a
 table and choosing **Copy Table as TSV** or **Copy Table as HTML**. Header
 separator rows are omitted; the HTML option also provides a formatted table to
-applications that accept HTML clipboard content.
+applications that accept HTML clipboard content. The same menu can add a row
+below the clicked row, add a column to the right of the clicked cell, or
+reformat damaged tab- or pipe-delimited rows back into the normal table
+structure.
 
 ## Archiving notes
 
