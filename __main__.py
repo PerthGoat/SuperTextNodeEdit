@@ -308,6 +308,10 @@ class RTFWindow:
         self.text_context_menu.add_separator()
         self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
         self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
+        self.text_context_menu.add_command(
+            label='Copy Image',
+            command=self.copyContextImageToClipboard,
+        )
         self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
         self.text_context_menu.add_separator()
         self.text_context_menu.add_command(
@@ -835,6 +839,8 @@ class RTFWindow:
         """Show editing actions for the document at the pointer position."""
         pointer_index = self.text.index(f'@{event.x},{event.y}')
         self.context_table_range = self.tableRangeAtIndex(pointer_index)
+        image_hit = self.embeddedImageAtPoint(event.x, event.y)
+        self.context_image_name = image_hit["name"] if image_hit else None
         selection = self.text.tag_ranges('sel')
         pointer_is_selected = (
             selection
@@ -850,6 +856,10 @@ class RTFWindow:
         selection_state = 'normal' if has_selection else 'disabled'
         self.text_context_menu.entryconfigure('Cut', state=selection_state)
         self.text_context_menu.entryconfigure('Copy', state=selection_state)
+        self.text_context_menu.entryconfigure(
+            'Copy Image',
+            state='normal' if self.context_image_name else 'disabled',
+        )
         table_state = 'normal' if self.context_table_range else 'disabled'
         self.text_context_menu.entryconfigure(
             'Copy Table as TSV',
@@ -3456,6 +3466,54 @@ class RTFWindow:
             current_image_name = embedded_name
 
         return self.findTkImageByName(current_image_name)
+
+    def embeddedImageAtPoint(self, x, y):
+        """Return the embedded image whose displayed bounds contain a point."""
+        for token_type, token_value, token_index in self.text.dump('1.0', 'end'):
+            if token_type != 'image':
+                continue
+
+            bbox = self.text.bbox(token_index)
+            if bbox is None:
+                continue
+
+            bbox_x, bbox_y, bbox_width, bbox_height = bbox
+            if (
+                bbox_x <= x < bbox_x + bbox_width
+                and bbox_y <= y < bbox_y + bbox_height
+            ):
+                return {
+                    "name": token_value,
+                    "index": token_index,
+                    "bbox": bbox,
+                }
+
+        return None
+
+    def copyEmbeddedImageToClipboard(self, embedded_name):
+        """Copy one displayed embedded image to the native bitmap clipboard."""
+        tk_image = self.getPhotoImageForEmbeddedImage(embedded_name)
+        if tk_image is None:
+            return None
+
+        image_bytes = io.BytesIO()
+        ImageTk.getimage(tk_image).save(image_bytes, 'DIB')
+
+        self.clip.open_clipboard()
+        try:
+            self.clip.clear_clipboard()
+            self.clip.set_clipboard(image_bytes.getvalue(), self.clip.BITMAP)
+        finally:
+            self.clip.close_clipboard()
+
+        return 'break'
+
+    def copyContextImageToClipboard(self):
+        """Copy the image targeted by the most recent document context menu."""
+        embedded_name = getattr(self, 'context_image_name', None)
+        if embedded_name is None:
+            return None
+        return self.copyEmbeddedImageToClipboard(embedded_name)
 
     def resizeEmbeddedImage(self, embedded_name, width, height):
         width = max(self.IMAGE_RESIZE_MIN_SIZE, int(round(width)))

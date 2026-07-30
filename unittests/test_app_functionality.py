@@ -510,6 +510,10 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         context_menu.entryconfigure.assert_any_call("Cut", state="normal")
         context_menu.entryconfigure.assert_any_call("Copy", state="normal")
         context_menu.entryconfigure.assert_any_call(
+            "Copy Image",
+            state="disabled",
+        )
+        context_menu.entryconfigure.assert_any_call(
             "Copy Table as TSV",
             state="disabled",
         )
@@ -519,6 +523,72 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         )
         context_menu.tk_popup.assert_called_once_with(110, 220)
         context_menu.grab_release.assert_called_once_with()
+
+    def test_text_context_menu_enables_copy_image_for_right_clicked_image(self):
+        context_menu = mock.Mock()
+        self.window.text_context_menu = context_menu
+        event = SimpleNamespace(x=15, y=25, x_root=110, y_root=220)
+        image_hit = {
+            "name": "pyimage1",
+            "index": "1.0",
+            "bbox": (10, 20, 30, 40),
+        }
+
+        with (
+            mock.patch.object(self.window.text, "index", return_value="1.0"),
+            mock.patch.object(
+                self.window,
+                "embeddedImageAtPoint",
+                return_value=image_hit,
+            ),
+        ):
+            result = self.window.showTextContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertEqual("pyimage1", self.window.context_image_name)
+        context_menu.entryconfigure.assert_any_call(
+            "Copy Image",
+            state="normal",
+        )
+
+    def test_embedded_image_at_point_uses_displayed_image_bounds(self):
+        dump = [
+            ("text", "before", "1.0"),
+            ("image", "pyimage1", "1.6"),
+        ]
+
+        with (
+            mock.patch.object(self.window.text, "dump", return_value=dump),
+            mock.patch.object(
+                self.window.text,
+                "bbox",
+                return_value=(10, 20, 30, 40),
+            ),
+        ):
+            hit = self.window.embeddedImageAtPoint(25, 35)
+            miss = self.window.embeddedImageAtPoint(40, 35)
+
+        self.assertEqual("pyimage1", hit["name"])
+        self.assertEqual("1.6", hit["index"])
+        self.assertIsNone(miss)
+
+    def test_copy_context_image_places_bitmap_on_clipboard(self):
+        embedded_name = self.window.createEmbeddedImage(
+            "1.0",
+            app.Image.new("RGB", (4, 3), "red"),
+        )
+        self.window.context_image_name = embedded_name
+
+        result = self.window.copyContextImageToClipboard()
+
+        self.assertEqual("break", result)
+        bitmap_calls = [
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.BITMAP
+        ]
+        self.assertEqual(1, len(bitmap_calls))
+        self.assertTrue(bitmap_calls[0])
 
     def test_cut_text_selection_uses_rich_copy_then_deletes_selection(self):
         self.window.text.insert("1.0", "cut me")
