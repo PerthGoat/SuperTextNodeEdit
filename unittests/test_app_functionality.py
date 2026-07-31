@@ -508,20 +508,16 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
         self.assertEqual("break", result)
         self.assertTrue(self.window.text.tag_ranges("sel"))
-        context_menu.entryconfigure.assert_any_call("Cut", state="normal")
-        context_menu.entryconfigure.assert_any_call("Copy", state="normal")
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Image",
-            state="disabled",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Table as TSV",
-            state="disabled",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Table as HTML",
-            state="disabled",
-        )
+        labels = [
+            call.kwargs["label"]
+            for call in context_menu.add_command.call_args_list
+        ]
+        self.assertIn("Cut", labels)
+        self.assertIn("Copy", labels)
+        self.assertIn("Insert Hyperlink...", labels)
+        self.assertNotIn("Copy Image", labels)
+        self.assertNotIn("Copy Table as TSV", labels)
+        self.assertNotIn("Copy Table as HTML", labels)
         context_menu.tk_popup.assert_called_once_with(110, 220)
         context_menu.grab_release.assert_called_once_with()
 
@@ -547,10 +543,13 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
         self.assertEqual("break", result)
         self.assertEqual("pyimage1", self.window.context_image_name)
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Image",
-            state="normal",
-        )
+        labels = [
+            call.kwargs["label"]
+            for call in context_menu.add_command.call_args_list
+        ]
+        self.assertIn("Copy Image", labels)
+        self.assertNotIn("Cut", labels)
+        self.assertNotIn("Copy Table as TSV", labels)
 
     def test_embedded_image_at_point_uses_displayed_image_bounds(self):
         dump = [
@@ -995,26 +994,15 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
         self.assertEqual("break", result)
         self.assertEqual((2, 3), self.window.context_table_range)
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Table as TSV",
-            state="normal",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Copy Table as HTML",
-            state="normal",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Add Row Below",
-            state="normal",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Add Column Right",
-            state="normal",
-        )
-        context_menu.entryconfigure.assert_any_call(
-            "Reformat Table",
-            state="normal",
-        )
+        labels = [
+            call.kwargs["label"]
+            for call in context_menu.add_command.call_args_list
+        ]
+        self.assertIn("Copy Table as TSV", labels)
+        self.assertIn("Copy Table as HTML", labels)
+        self.assertIn("Add Row Below", labels)
+        self.assertIn("Add Column Right", labels)
+        self.assertIn("Reformat Table", labels)
 
     def test_add_table_row_below_clicked_row_keeps_header_separator_in_place(self):
         self.window.text.insert(
@@ -1137,10 +1125,11 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("break", result)
         self.assertEqual((1, 2), self.window.context_table_range)
         self.assertEqual(1, self.window.context_table_column)
-        context_menu.entryconfigure.assert_any_call(
-            "Reformat Table",
-            state="normal",
-        )
+        labels = [
+            call.kwargs["label"]
+            for call in context_menu.add_command.call_args_list
+        ]
+        self.assertIn("Reformat Table", labels)
 
     def test_copy_table_as_tsv_omits_header_separator_and_keeps_empty_cells(self):
         self.window.text.insert(

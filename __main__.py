@@ -303,43 +303,7 @@ class RTFWindow:
         self.tab_context_menu.add_command(label='Close Other Tabs', command=self.closeOtherTabs)
 
         self.text_context_menu = tk.Menu(self.window, tearoff=False)
-        self.text_context_menu.add_command(label='Undo', command=self.undoDocument)
-        self.text_context_menu.add_command(label='Redo', command=self.redoDocument)
-        self.text_context_menu.add_separator()
-        self.text_context_menu.add_command(label='Cut', command=self.cutTextSelection)
-        self.text_context_menu.add_command(label='Copy', command=self.copyFromClipboard)
-        self.text_context_menu.add_command(
-            label='Copy Image',
-            command=self.copyContextImageToClipboard,
-        )
-        self.text_context_menu.add_command(label='Paste', command=self.pasteFromClipboard)
-        self.text_context_menu.add_separator()
-        self.text_context_menu.add_command(
-            label='Copy Table as TSV',
-            command=self.copyTableAsTSV,
-        )
-        self.text_context_menu.add_command(
-            label='Copy Table as HTML',
-            command=self.copyTableAsHTML,
-        )
-        self.text_context_menu.add_separator()
-        self.text_context_menu.add_command(
-            label='Add Row Below',
-            command=self.addTableRowBelow,
-        )
-        self.text_context_menu.add_command(
-            label='Add Column Right',
-            command=self.addTableColumnRight,
-        )
-        self.text_context_menu.add_command(
-            label='Reformat Table',
-            command=self.reformatTable,
-        )
-        self.text_context_menu.add_separator()
-        self.text_context_menu.add_command(
-            label='Insert Hyperlink...',
-            command=self.showInsertHyperlinkDialog,
-        )
+        self.rebuildTextContextMenu()
 
         initial_document = self.createDocumentTab()
         self.activateDocument(initial_document)
@@ -871,37 +835,10 @@ class RTFWindow:
             self.text.mark_set('insert', pointer_index)
 
         has_selection = bool(self.text.tag_ranges('sel'))
-        selection_state = 'normal' if has_selection else 'disabled'
-        self.text_context_menu.entryconfigure('Cut', state=selection_state)
-        self.text_context_menu.entryconfigure('Copy', state=selection_state)
-        self.text_context_menu.entryconfigure(
-            'Copy Image',
-            state='normal' if self.context_image_name else 'disabled',
-        )
-        table_state = 'normal' if self.context_table_range else 'disabled'
-        self.text_context_menu.entryconfigure(
-            'Copy Table as TSV',
-            state=table_state,
-        )
-        self.text_context_menu.entryconfigure(
-            'Copy Table as HTML',
-            state=table_state,
-        )
-        self.text_context_menu.entryconfigure(
-            'Add Row Below',
-            state=table_state,
-        )
-        self.text_context_menu.entryconfigure(
-            'Add Column Right',
-            state=table_state,
-        )
-        self.text_context_menu.entryconfigure(
-            'Reformat Table',
-            state=table_state,
-        )
-        self.text_context_menu.entryconfigure(
-            'Insert Hyperlink...',
-            state=selection_state,
+        self.rebuildTextContextMenu(
+            has_selection=has_selection,
+            has_image=bool(self.context_image_name),
+            has_table=bool(self.context_table_range),
         )
         self.text.focus_set()
 
@@ -911,6 +848,70 @@ class RTFWindow:
             self.text_context_menu.grab_release()
 
         return 'break'
+
+    def rebuildTextContextMenu(
+        self,
+        has_selection=False,
+        has_image=False,
+        has_table=False,
+    ):
+        """Populate the document context menu with applicable actions only."""
+        editing_commands = []
+        if has_selection:
+            editing_commands.extend((
+                ('Cut', self.cutTextSelection),
+                ('Copy', self.copyFromClipboard),
+            ))
+        if has_image:
+            editing_commands.append(
+                ('Copy Image', self.copyContextImageToClipboard),
+            )
+        editing_commands.append(('Paste', self.pasteFromClipboard))
+
+        table_copy_commands = []
+        table_edit_commands = []
+        if has_table:
+            table_copy_commands.extend((
+                ('Copy Table as TSV', self.copyTableAsTSV),
+                ('Copy Table as HTML', self.copyTableAsHTML),
+            ))
+            table_edit_commands.extend((
+                ('Add Row Below', self.addTableRowBelow),
+                ('Add Column Right', self.addTableColumnRight),
+                ('Reformat Table', self.reformatTable),
+            ))
+
+        hyperlink_commands = []
+        if has_selection:
+            hyperlink_commands.append(
+                ('Insert Hyperlink...', self.showInsertHyperlinkDialog),
+            )
+
+        command_groups = (
+            (
+                ('Undo', self.undoDocument),
+                ('Redo', self.redoDocument),
+            ),
+            editing_commands,
+            table_copy_commands,
+            table_edit_commands,
+            hyperlink_commands,
+        )
+
+        self.text_context_menu.delete(0, 'end')
+        added_group = False
+        for commands in command_groups:
+            if not commands:
+                continue
+            if added_group:
+                self.text_context_menu.add_separator()
+            for label, command in commands:
+                self.text_context_menu.add_command(
+                    label=label,
+                    command=command,
+                )
+            added_group = True
+        return None
 
     def createMenuBar(self):
         menu_bar = tk.Menu(self.window)
