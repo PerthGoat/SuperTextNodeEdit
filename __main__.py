@@ -271,6 +271,7 @@ class RTFWindow:
         self.node_context_menu.add_command(label='Duplicate', command=self.duplicateNode)
         self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
+        self.node_context_menu.add_command(label='Add Root Node', command=self.createRootNode)
         self.node_context_menu.add_separator()
         self.node_context_menu.add_command(label='Archive', command=self.archiveSelectedNode)
         self.node_context_menu.add_command(label='Delete', command=self.deleteNode)
@@ -1001,7 +1002,8 @@ class RTFWindow:
         self.menus['nodes'] = node_menu
         node_menu.add_command(label='Update', command=self.populateNodeTree)
         node_menu.add_separator()
-        node_menu.add_command(label='New', command=self.createNewNode)
+        node_menu.add_command(label='Add Root Node', command=self.createRootNode)
+        node_menu.add_command(label='Add Child', command=self.createNewNode)
         node_menu.add_command(label='Rename', command=self.renameNode)
         node_menu.add_command(label='Move', command=self.beginMoveNode)
         node_menu.add_command(label='Archive', command=self.archiveSelectedNode)
@@ -4978,15 +4980,26 @@ class RTFWindow:
             messagebox.showinfo('Saved files', f'Saved {saved_count} open note(s).')
         return 'break'
     
-    def createNewNode(self):
-        sel = self.selected_node
-        
-        if len(sel) == 0:
+    def createRootNode(self):
+        """Create a node at the top level regardless of the current selection."""
+        return self.createNewNode(parent_node='')
+
+    def createNewNode(self, parent_node=None):
+        """Create a node beneath the selected node or an explicit parent."""
+        sel = self.selected_node if parent_node is None else parent_node
+        if not sel:
             sel = ''
 
-        newNodeName = f'newNode{len(self.tree.get_children(sel))}'
-        
-        path = self.resolveNodePath(os.path.join(self.get_node_path(sel), newNodeName))
+        new_node_index = len(self.tree.get_children(sel))
+        while True:
+            newNodeName = f'newNode{new_node_index}'
+            path = self.resolveNodePath(
+                os.path.join(self.get_node_path(sel), newNodeName)
+            )
+            if not os.path.exists(path) and not os.path.exists(path + '.rtf'):
+                break
+            new_node_index += 1
+
         file_path = path + '.rtf'
         
         # create the new dir to go with the new file
@@ -4995,7 +5008,13 @@ class RTFWindow:
         with open(file_path, 'w') as fi:
             fi.write(self.RTF_HEADER + '}')
         
-        self.tree.insert(sel, 'end', text=newNodeName, values=('',), iid=self.getNextTkinterItemId())
+        return self.tree.insert(
+            sel,
+            'end',
+            text=newNodeName,
+            values=('',),
+            iid=self.getNextTkinterItemId(),
+        )
 
     def documentIsUnderNodePath(self, document_path, node_path):
         document_path = self.normalizedDocumentPath(document_path)

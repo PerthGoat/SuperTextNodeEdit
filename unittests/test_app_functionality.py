@@ -466,6 +466,31 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(new_file.is_file())
         self.assertEqual(self.window.RTF_HEADER + "}", new_file.read_text())
 
+    def test_nodes_menu_can_add_root_node_while_a_node_is_selected(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        alpha = self.window.find_self("alpha")
+        self.window.selected_node = alpha
+        self.window.tree.selection_set(alpha)
+        nodes_menu = self.window.menus["nodes"]
+        root_command = next(
+            index
+            for index in range(nodes_menu.index("end") + 1)
+            if nodes_menu.type(index) == "command"
+            and nodes_menu.entrycget(index, "label") == "Add Root Node"
+        )
+
+        nodes_menu.invoke(root_command)
+
+        self.assertTrue((self.node_dir / "newNode1").is_dir())
+        self.assertTrue((self.node_dir / "newNode1.rtf").is_file())
+        self.assertFalse((self.node_dir / "alpha" / "newNode0.rtf").exists())
+        root_names = [
+            self.window.tree.item(item)["text"]
+            for item in self.window.tree.get_children()
+        ]
+        self.assertEqual(["alpha", "newNode1"], root_names)
+
     def test_archive_selected_node_removes_subtree_and_creates_searchable_bundle(self):
         self.write_node("parent", "Parent text")
         self.write_node(Path("parent") / "child", "Archived child phrase")

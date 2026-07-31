@@ -32,6 +32,12 @@ integration is not implemented yet.
 Keyboard shortcuts use **Ctrl** on Windows/Linux and **Command** on macOS.
 Right-click menus also support the standard macOS **Control-click** gesture.
 
+## Creating notes
+
+Use **Nodes → Add Root Node** to create a note at the top level of the node
+tree, even when another note is selected. Use **Nodes → Add Child** or
+right-click a note and choose **Add Child** to create a note beneath it.
+
 ## Searching notes
 Use **Edit → Search All Notes** or press **Ctrl+Shift+F** (**Command+Shift+F**
 on macOS) to search for a
