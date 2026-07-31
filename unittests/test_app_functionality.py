@@ -3,6 +3,8 @@ import hashlib
 import importlib.util
 import os
 import struct
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -47,6 +49,9 @@ class FakeClipboard:
     def get_file_paths(self):
         return []
 
+    def encode_text(self, text):
+        return text.encode("cp1252")
+
     def register_format(self, name):
         self.registered_formats = getattr(self, 'registered_formats', [])
         self.registered_formats.append(name)
@@ -72,16 +77,21 @@ def make_config(path, node_dir):
 
 
 def can_create_tk():
-    root = None
     try:
-        root = tk.Tk()
-        root.withdraw()
-        return True
-    except tk.TclError:
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import tkinter as tk; root=tk.Tk(); root.withdraw(); root.destroy()",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+        return probe.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
         return False
-    finally:
-        if root is not None:
-            root.destroy()
 
 
 @unittest.skipUnless(can_create_tk(), "Tk display is not available")
@@ -925,7 +935,7 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             self.window.clip.set_calls,
         )
         self.assertIn(
-            ("Plain text".encode("ansi"), self.window.clip.TEXT),
+            ("Plain text".encode("cp1252"), self.window.clip.TEXT),
             self.window.clip.set_calls,
         )
         self.assertTrue(any(
@@ -1402,11 +1412,11 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
     def test_file_hyperlink_uses_the_operating_system_url_handler(self):
         target = "file:///C:/notes/reference.pdf"
-        with mock.patch.object(app.os, "startfile", create=True) as startfile:
+        with mock.patch.object(self.window, "openWithDefaultApplication") as open_target:
             result = self.window.activateHyperlink("file", target)
 
         self.assertEqual("break", result)
-        startfile.assert_called_once_with(target)
+        open_target.assert_called_once_with(target)
 
     def test_formatting_at_document_start_does_not_spill_after_round_trip(self):
         self.window.text.insert("1.0", "Bold plain text")

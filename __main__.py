@@ -119,6 +119,11 @@ class RTFWindow:
     def __init__(self, configFile='rtfjournal.ini', start_mainloop=True, start_worker=True):
         self.start_mainloop = start_mainloop
         self.start_worker = start_worker
+        self.is_macos = sys.platform == 'darwin'
+        self.primary_modifier = 'Command' if self.is_macos else 'Control'
+        self.primary_accelerator = 'Command' if self.is_macos else 'Ctrl'
+        self.alternate_modifier = 'Option' if self.is_macos else 'Alt'
+        self.alternate_accelerator = 'Option' if self.is_macos else 'Alt'
         
         # make sure a config file exists, and if not, create a base one
         if not os.path.exists(configFile):
@@ -269,7 +274,7 @@ class RTFWindow:
         self.node_context_menu.add_separator()
         self.node_context_menu.add_command(label='Archive', command=self.archiveSelectedNode)
         self.node_context_menu.add_command(label='Delete', command=self.deleteNode)
-        self.tree.bind('<Button-3>', self.showNodeContextMenu)
+        self.bindContextMenu(self.tree, self.showNodeContextMenu)
         self.tree.bind('<Button-1>', self.completeMoveNode, add='+')
         self.window.bind_all('<Escape>', self.cancelNodeInteraction, add='+')
         
@@ -296,7 +301,7 @@ class RTFWindow:
         self.editor_tabs.pack(fill='both', expand=True)
         self.editor_tabs.bind('<<NotebookTabChanged>>', self.onEditorTabChanged)
         self.editor_tabs.bind('<Button-2>', self.closeTabAtEvent)
-        self.editor_tabs.bind('<Button-3>', self.showTabContextMenu)
+        self.bindContextMenu(self.editor_tabs, self.showTabContextMenu)
 
         self.tab_context_menu = tk.Menu(self.window, tearoff=False)
         self.tab_context_menu.add_command(label='Close Tab', command=self.closeCurrentTab)
@@ -330,20 +335,19 @@ class RTFWindow:
 
     def bindTextEditor(self, editor):
         """Attach the document editing behavior to a tab's text widget."""
-        editor.bind('<Button-3>', self.showTextContextMenu)
-        editor.bind('<Control-v>', self.pasteFromClipboard)
-        editor.bind('<Control-c>', self.copyFromClipboard)
-        editor.bind('<Control-z>', self.undoDocument)
-        editor.bind('<Control-Z>', self.undoDocument)
-        editor.bind('<Control-y>', self.redoDocument)
-        editor.bind('<Control-Y>', self.redoDocument)
-        editor.bind('<Control-b>', lambda _: self.toggleBoldForSelection())
-        editor.bind('<Control-i>', lambda _: self.toggleItalicForSelection())
-        editor.bind('<Control-k>', self.showInsertHyperlinkDialog)
-        editor.bind('<Control-K>', self.showInsertHyperlinkDialog)
-        editor.bind('<Control-e>', lambda _: self.toggleCenterAlignmentForSelection())
-        editor.bind('<Control-Shift-c>', self.toggleFormatPainter)
-        editor.bind('<Control-Shift-C>', self.toggleFormatPainter)
+        self.bindContextMenu(editor, self.showTextContextMenu)
+        self.bindShortcut(editor, 'v', self.pasteFromClipboard)
+        self.bindShortcut(editor, 'c', self.copyFromClipboard)
+        self.bindShortcut(editor, 'x', self.cutTextSelection)
+        self.bindShortcut(editor, 'z', self.undoDocument)
+        self.bindShortcut(editor, 'y', self.redoDocument)
+        if self.is_macos:
+            self.bindShortcut(editor, 'z', self.redoDocument, shift=True)
+        self.bindShortcut(editor, 'b', lambda _: self.toggleBoldForSelection())
+        self.bindShortcut(editor, 'i', lambda _: self.toggleItalicForSelection())
+        self.bindShortcut(editor, 'k', self.showInsertHyperlinkDialog)
+        self.bindShortcut(editor, 'e', lambda _: self.toggleCenterAlignmentForSelection())
+        self.bindShortcut(editor, 'c', self.toggleFormatPainter, shift=True)
         editor.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
         editor.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
@@ -359,12 +363,33 @@ class RTFWindow:
         editor.bind('<B1-Motion>', self.dragImageResize, add='+')
         editor.bind('<ButtonRelease-1>', self.finishImageResize, add='+')
         editor.bind('<ButtonRelease-1>', self.applyFormatPainterToSelection, add='+')
-        editor.bind('<Control-x>', self.cutTextSelection)
         editor.bind(
             '<<Modified>>',
             lambda _event, current_editor=editor: self.onDocumentModified(current_editor),
             add='+',
         )
+
+    def bindShortcut(self, widget, key, callback, shift=False, add=None):
+        """Bind a primary-key shortcut using Command on macOS and Ctrl elsewhere."""
+        shift_part = 'Shift-' if shift else ''
+        sequence = f'<{self.primary_modifier}-{shift_part}{key.lower()}>'
+        widget.bind(sequence, callback, add=add)
+        if shift:
+            widget.bind(
+                f'<{self.primary_modifier}-Shift-{key.upper()}>',
+                callback,
+                add=add,
+            )
+        return sequence
+
+    def bindContextMenu(self, widget, callback):
+        """Bind conventional right-click gestures, including macOS Control-click."""
+        widget.bind('<Button-3>', callback)
+        if self.is_macos:
+            # Aqua Tk has historically reported a secondary click as button 2;
+            # newer builds can report button 3, so support both spellings.
+            widget.bind('<Button-2>', callback)
+            widget.bind('<Control-Button-1>', callback)
 
     def createDocumentTab(self, path='', relative_path=''):
         editor = ScrollableText(
@@ -915,22 +940,32 @@ class RTFWindow:
 
     def createMenuBar(self):
         menu_bar = tk.Menu(self.window)
+        primary = self.primary_accelerator
+        alternate = self.alternate_accelerator
 
         file_menu = tk.Menu(menu_bar, tearoff=False)
-        file_menu.add_command(label='Save', accelerator='Ctrl+S', command=self.saveRTF)
-        file_menu.add_command(label='Save All', accelerator='Ctrl+Shift+S', command=self.saveAllTabs)
-        file_menu.add_command(label='Close Tab', accelerator='Ctrl+W', command=self.closeCurrentTab)
+        file_menu.add_command(label='Save', accelerator=f'{primary}+S', command=self.saveRTF)
+        file_menu.add_command(label='Save All', accelerator=f'{primary}+Shift+S', command=self.saveAllTabs)
+        file_menu.add_command(label='Close Tab', accelerator=f'{primary}+W', command=self.closeCurrentTab)
         file_menu.add_separator()
-        file_menu.add_command(label='Exit', command=self.closeWindow)
+        if self.is_macos:
+            file_menu.add_command(
+                label='Quit SuperText',
+                accelerator=f'{primary}+Q',
+                command=self.closeWindow,
+            )
+        else:
+            file_menu.add_command(label='Exit', command=self.closeWindow)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
         edit_menu = tk.Menu(menu_bar, tearoff=False)
-        edit_menu.add_command(label='Undo', accelerator='Ctrl+Z', command=self.undoDocument)
-        edit_menu.add_command(label='Redo', accelerator='Ctrl+Y', command=self.redoDocument)
+        edit_menu.add_command(label='Undo', accelerator=f'{primary}+Z', command=self.undoDocument)
+        redo_accelerator = f'{primary}+Shift+Z' if self.is_macos else f'{primary}+Y'
+        edit_menu.add_command(label='Redo', accelerator=redo_accelerator, command=self.redoDocument)
         edit_menu.add_separator()
         edit_menu.add_command(
             label='Search All Notes...',
-            accelerator='Ctrl+Shift+F',
+            accelerator=f'{primary}+Shift+F',
             command=self.showSearchDialog,
         )
         menu_bar.add_cascade(label='Edit', menu=edit_menu)
@@ -938,7 +973,7 @@ class RTFWindow:
         view_menu = tk.Menu(menu_bar, tearoff=False)
         view_menu.add_checkbutton(
             label='Wrap Text',
-            accelerator='Alt+Z',
+            accelerator=f'{alternate}+Z',
             variable=self.wrap_text_var,
             command=self.applyTextWrappingFromMenu,
         )
@@ -959,7 +994,7 @@ class RTFWindow:
         insert_menu = tk.Menu(menu_bar, tearoff=False)
         insert_menu.add_command(
             label='Hyperlink...',
-            accelerator='Ctrl+K',
+            accelerator=f'{primary}+K',
             command=self.showInsertHyperlinkDialog,
         )
         insert_menu.add_command(label='Table...', command=self.showInsertTableDialog)
@@ -989,41 +1024,42 @@ class RTFWindow:
         format_menu.add_separator()
         format_menu.add_checkbutton(
             label='Format Painter',
-            accelerator='Ctrl+Shift+C',
+            accelerator=f'{primary}+Shift+C',
             variable=self.format_painter_menu_var,
             command=self.toggleFormatPainter,
         )
         format_menu.add_separator()
         format_menu.add_checkbutton(
             label='Bold',
-            accelerator='Ctrl+B',
+            accelerator=f'{primary}+B',
             variable=self.bold_menu_var,
             command=self.toggleBoldForSelection,
         )
         format_menu.add_checkbutton(
             label='Italic',
-            accelerator='Ctrl+I',
+            accelerator=f'{primary}+I',
             variable=self.italic_menu_var,
             command=self.toggleItalicForSelection,
         )
         format_menu.add_checkbutton(
             label='Centered Text',
-            accelerator='Ctrl+E',
+            accelerator=f'{primary}+E',
             variable=self.center_menu_var,
             command=self.applyCenterAlignmentFromMenu,
         )
         menu_bar.add_cascade(label='Format', menu=format_menu)
 
         self.window.config(menu=menu_bar)
-        self.window.bind_all('<Control-s>', self.saveRTFShortcut)
-        self.window.bind_all('<Control-Shift-s>', self.saveAllTabs)
-        self.window.bind_all('<Control-Shift-S>', self.saveAllTabs)
-        self.window.bind_all('<Control-w>', self.closeCurrentTab)
-        self.window.bind_all('<Control-W>', self.closeCurrentTab)
-        self.window.bind_all('<Control-Shift-f>', self.showSearchDialog)
-        self.window.bind_all('<Control-Shift-F>', self.showSearchDialog)
-        self.window.bind_all('<Alt-z>', self.toggleTextWrapping)
-        self.window.bind_all('<Alt-Z>', self.toggleTextWrapping)
+        self.bindShortcut(self.window, 's', self.saveRTFShortcut)
+        self.bindShortcut(self.window, 's', self.saveAllTabs, shift=True)
+        self.bindShortcut(self.window, 'w', self.closeCurrentTab)
+        self.bindShortcut(self.window, 'f', self.showSearchDialog, shift=True)
+        if self.is_macos:
+            self.bindShortcut(self.window, 'q', self.closeWindow)
+        self.window.bind_all(
+            f'<{self.alternate_modifier}-z>',
+            self.toggleTextWrapping,
+        )
 
     def setDocumentTextWrapping(self, document, enabled):
         """Set wrapping for one document without changing its edit state."""
@@ -2043,7 +2079,12 @@ class RTFWindow:
         self.scheduleTableLayoutRefresh()
 
     def typedCharacterFromEvent(self, event):
-        if event.state & 0x4:
+        control_is_held = bool(event.state & 0x0004)
+        # Aqua Tk maps Command to Mod1.  Ignore it here just as we ignore
+        # Control elsewhere, otherwise an unhandled Command shortcut can also
+        # insert its printable key into the document.
+        command_is_held = self.is_macos and bool(event.state & 0x0008)
+        if control_is_held or command_is_held:
             return None
 
         if event.keysym == 'Return':
@@ -2499,18 +2540,22 @@ class RTFWindow:
             return 'break'
 
         try:
-            if os.name == 'nt':
-                os.startfile(target)
-            elif sys.platform == 'darwin':
-                subprocess.Popen(['open', target])
-            else:
-                subprocess.Popen(['xdg-open', target])
+            self.openWithDefaultApplication(target)
         except (AttributeError, OSError) as exc:
             messagebox.showerror(
                 'Could not open hyperlink',
                 f'{target}\n\n{exc}',
             )
         return 'break'
+
+    def openWithDefaultApplication(self, target):
+        """Open a URL or local path with the platform's registered application."""
+        if os.name == 'nt':
+            os.startfile(target)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', target])
+        else:
+            subprocess.Popen(['xdg-open', target])
 
     def showInsertHyperlinkDialog(self, event=None):
         selected_range = self.selectedTextRange(show_error=True)
@@ -3596,7 +3641,10 @@ class RTFWindow:
             'widget': label,
         }
         label.bind('<Double-1>', lambda _event, name=embedded_name: self.openEmbeddedFile(name))
-        label.bind('<Button-3>', lambda event, name=embedded_name: self.showEmbeddedFileMenu(event, name))
+        self.bindContextMenu(
+            label,
+            lambda event, name=embedded_name: self.showEmbeddedFileMenu(event, name),
+        )
         return embedded_name
 
     def createHorizontalRule(self, index):
@@ -3828,7 +3876,7 @@ class RTFWindow:
         if path is None:
             return None
         try:
-            os.startfile(path)
+            self.openWithDefaultApplication(path)
         except (AttributeError, OSError) as exc:
             messagebox.showerror('Could not open attachment', str(exc))
         return 'break'
@@ -4746,8 +4794,13 @@ class RTFWindow:
     def setClipboardPlainText(self, text):
         self.clip.set_clipboard(text.encode('utf-16-le'), self.clip.UNITEXT)
         try:
-            self.clip.set_clipboard(text.encode('ansi'), self.clip.TEXT)
-        except UnicodeEncodeError:
+            encoder = getattr(
+                self.clip,
+                'encode_text',
+                lambda value: value.encode('cp1252'),
+            )
+            self.clip.set_clipboard(encoder(text), self.clip.TEXT)
+        except (LookupError, UnicodeEncodeError):
             pass
     
     # convert a text selection to RTF

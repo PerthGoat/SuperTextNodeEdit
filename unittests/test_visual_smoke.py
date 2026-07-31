@@ -1,6 +1,8 @@
 import configparser
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import tkinter as tk
 import unittest
@@ -38,6 +40,15 @@ class FakeClipboard:
     def get_clipboard(self):
         return None
 
+    def get_file_paths(self):
+        return []
+
+    def register_format(self, _name):
+        return None
+
+    def encode_text(self, text):
+        return text.encode("cp1252")
+
     def set_clipboard(self, data, data_type):
         pass
 
@@ -53,16 +64,21 @@ def make_config(path, node_dir):
 
 
 def can_create_tk():
-    root = None
     try:
-        root = tk.Tk()
-        root.withdraw()
-        return True
-    except tk.TclError:
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import tkinter as tk; root=tk.Tk(); root.withdraw(); root.destroy()",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+        return probe.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
         return False
-    finally:
-        if root is not None:
-            root.destroy()
 
 
 @unittest.skipUnless(can_create_tk(), "Tk display is not available")
