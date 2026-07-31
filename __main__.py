@@ -939,26 +939,43 @@ class RTFWindow:
         return None
 
     def createMenuBar(self):
-        menu_bar = tk.Menu(self.window)
+        # Aqua Tk recognizes specially named children of a named menubar.  In
+        # particular, the Apple menu must already exist the first time the
+        # menubar is attached or Tk installs a hidden default in its place.
+        menu_bar = tk.Menu(
+            self.window,
+            name='menubar',
+            tearoff=False,
+        )
+        self.menu_bar = menu_bar
+        self.menus = {}
         primary = self.primary_accelerator
         alternate = self.alternate_accelerator
 
+        if self.is_macos:
+            application_menu = tk.Menu(
+                menu_bar,
+                name='apple',
+                tearoff=False,
+            )
+            self.menus['application'] = application_menu
+            menu_bar.add_cascade(label='SuperText', menu=application_menu)
+
         file_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['file'] = file_menu
         file_menu.add_command(label='Save', accelerator=f'{primary}+S', command=self.saveRTF)
         file_menu.add_command(label='Save All', accelerator=f'{primary}+Shift+S', command=self.saveAllTabs)
         file_menu.add_command(label='Close Tab', accelerator=f'{primary}+W', command=self.closeCurrentTab)
         file_menu.add_separator()
-        if self.is_macos:
-            file_menu.add_command(
-                label='Quit SuperText',
-                accelerator=f'{primary}+Q',
-                command=self.closeWindow,
-            )
-        else:
-            file_menu.add_command(label='Exit', command=self.closeWindow)
+        file_menu.add_command(
+            label='Quit SuperText' if self.is_macos else 'Exit',
+            accelerator=f'{primary}+Q' if self.is_macos else '',
+            command=self.closeWindow,
+        )
         menu_bar.add_cascade(label='File', menu=file_menu)
 
         edit_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['edit'] = edit_menu
         edit_menu.add_command(label='Undo', accelerator=f'{primary}+Z', command=self.undoDocument)
         redo_accelerator = f'{primary}+Shift+Z' if self.is_macos else f'{primary}+Y'
         edit_menu.add_command(label='Redo', accelerator=redo_accelerator, command=self.redoDocument)
@@ -971,6 +988,7 @@ class RTFWindow:
         menu_bar.add_cascade(label='Edit', menu=edit_menu)
 
         view_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['view'] = view_menu
         view_menu.add_checkbutton(
             label='Wrap Text',
             accelerator=f'{alternate}+Z',
@@ -980,6 +998,7 @@ class RTFWindow:
         menu_bar.add_cascade(label='View', menu=view_menu)
 
         node_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['nodes'] = node_menu
         node_menu.add_command(label='Update', command=self.populateNodeTree)
         node_menu.add_separator()
         node_menu.add_command(label='New', command=self.createNewNode)
@@ -992,6 +1011,7 @@ class RTFWindow:
         menu_bar.add_cascade(label='Nodes', menu=node_menu)
 
         insert_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['insert'] = insert_menu
         insert_menu.add_command(
             label='Hyperlink...',
             accelerator=f'{primary}+K',
@@ -1005,6 +1025,7 @@ class RTFWindow:
         menu_bar.add_cascade(label='Insert', menu=insert_menu)
 
         format_menu = tk.Menu(menu_bar, tearoff=False)
+        self.menus['format'] = format_menu
 
         format_menu.add_command(label='Font Family...', command=self.showFontFamilyDialog)
 
@@ -1049,7 +1070,30 @@ class RTFWindow:
         )
         menu_bar.add_cascade(label='Format', menu=format_menu)
 
-        self.window.config(menu=menu_bar)
+        if self.is_macos:
+            window_menu = tk.Menu(
+                menu_bar,
+                name='window',
+                tearoff=False,
+            )
+            help_menu = tk.Menu(
+                menu_bar,
+                name='help',
+                tearoff=False,
+            )
+            self.menus['window'] = window_menu
+            self.menus['help'] = help_menu
+            menu_bar.add_cascade(label='Window', menu=window_menu)
+            menu_bar.add_cascade(label='Help', menu=help_menu)
+            # Make the native Application-menu Quit item follow SuperText's
+            # unsaved-document confirmation flow.
+            self.window.tk.createcommand('tk::mac::Quit', self.closeWindow)
+
+        self.restoreMenuBar()
+        if self.is_macos:
+            self.createInlineMenuBar()
+        self.window.bind('<FocusIn>', self.restoreMenuBar, add='+')
+        self.window.bind('<Map>', self.restoreMenuBar, add='+')
         self.bindShortcut(self.window, 's', self.saveRTFShortcut)
         self.bindShortcut(self.window, 's', self.saveAllTabs, shift=True)
         self.bindShortcut(self.window, 'w', self.closeCurrentTab)
@@ -1060,6 +1104,50 @@ class RTFWindow:
             f'<{self.alternate_modifier}-z>',
             self.toggleTextWrapping,
         )
+
+    def createInlineMenuBar(self):
+        """Create a visible menu strip inside the window for Aqua Tk."""
+        menu_strip = ttk.Frame(self.window, style='SuperText.MenuBar.TFrame')
+        self.inline_menu_bar = menu_strip
+        self.inline_menu_buttons = {}
+
+        for key, label in (
+            ('file', 'File'),
+            ('edit', 'Edit'),
+            ('view', 'View'),
+            ('nodes', 'Nodes'),
+            ('insert', 'Insert'),
+            ('format', 'Format'),
+            ('window', 'Window'),
+            ('help', 'Help'),
+        ):
+            menu = self.menus.get(key)
+            if menu is None:
+                continue
+            button = ttk.Menubutton(
+                menu_strip,
+                text=label,
+                menu=menu,
+                direction='below',
+                takefocus=True,
+            )
+            button.pack(side='left', padx=(2, 0), pady=1)
+            self.inline_menu_buttons[key] = button
+
+        menu_strip.pack(side='top', fill='x')
+        ttk.Separator(self.window, orient='horizontal').pack(
+            side='top',
+            fill='x',
+        )
+
+    def restoreMenuBar(self, event=None):
+        """Ensure this toplevel owns the active native/global menu bar."""
+        menu_bar = getattr(self, 'menu_bar', None)
+        if menu_bar is None:
+            return None
+        if str(self.window.cget('menu')) != str(menu_bar):
+            self.window.configure(menu=menu_bar)
+        return None
 
     def setDocumentTextWrapping(self, document, enabled):
         """Set wrapping for one document without changing its edit state."""
