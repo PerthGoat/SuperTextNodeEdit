@@ -317,6 +317,12 @@ class RTFWindow:
         # double-click, which explicitly opens a separate tab.
         self.tree.bind('<ButtonRelease-1>', self.scheduleNodePreview, add='+')
         self.tree.bind('<Double-1>', self.openNodeFromTreeDoubleClick)
+        for arrow_key in ('Up', 'Down', 'Left', 'Right'):
+            self.tree.bind(
+                f'<KeyRelease-{arrow_key}>',
+                self.previewSelectedNodeFromKeyboard,
+                add='+',
+            )
 
         # bind a callback for treeview open so that lazy loading is possible
         # this is lower priority than lazyUnload so then it always will run after lazyUnload if they are both in the queue
@@ -855,6 +861,13 @@ class RTFWindow:
             open_in_new_tab=False,
             reuse_open_tab=False,
         )
+
+    def previewSelectedNodeFromKeyboard(self, event=None):
+        """Preview the node selected by Tk's completed arrow-key navigation."""
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        return self.previewNodeInFirstTab(selection[0])
 
     def openNodeFromTreeDoubleClick(self, event):
         self.cancelPendingNodePreview()

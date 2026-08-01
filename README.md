@@ -103,9 +103,10 @@ Restore refuses to overwrite an active note at the same path.
 ## Working with tabs
 Double-clicking a note opens it in an editor tab, so several notes can remain
 open at the same time. A single click previews the note in the first (leftmost)
-tab without creating another tab; the remaining tabs stay pinned to their
-notes. Every double-click creates a separate tab, even when that note is
-already open. Each tab keeps its own unsaved edits and undo history.
+tab without creating another tab. Selecting notes with the tree's arrow keys
+uses the same preview tab; the remaining tabs stay pinned to their notes. Every
+double-click creates a separate tab, even when that note is already open. Each
+tab keeps its own unsaved edits and undo history.
 
 Use **Ctrl+W** and **Ctrl+Shift+S** (or **Command+W** and **Command+Shift+S** on
 macOS) to close the current tab and save all modified tabs. Tabs can also be

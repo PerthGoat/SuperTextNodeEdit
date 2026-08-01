@@ -182,6 +182,22 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
         self.assertEqual(1, len(self.window.editor_tabs.tabs()))
 
+    def test_arrow_key_navigation_previews_selected_note_in_first_tab(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        first_document = self.window.active_document
+
+        beta = self.window.find_self("beta")
+        self.window.tree.selection_set(beta)
+        self.window.previewSelectedNodeFromKeyboard()
+
+        self.assertIs(first_document, self.window.active_document)
+        self.assertEqual(str(self.node_dir / "beta.rtf"), first_document.path)
+        self.assertEqual("Beta text", self.window.text.get("1.0", "end-1c"))
+        self.assertEqual(1, len(self.window.editor_tabs.tabs()))
+
     def test_canceling_single_click_preview_keeps_unsaved_note_open(self):
         self.write_node("alpha", "Alpha text")
         self.write_node("beta", "Beta text")
