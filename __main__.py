@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import unicodedata
 from pathlib import Path
 
 import configparser
@@ -56,6 +57,36 @@ BASE_CONFIG_CONST : str = r'''; config file for rtf tree program
 RTF_HEADER={\rtf1\ansi\pard {\fonttbl\f0\fswiss Consolas;}\f0 
 nodeDir=nodes/
 '''
+
+# Keep the picker deliberately font-agnostic: the editor's configured font is
+# used where possible, while Tk/font fallback handles characters it lacks.
+# CP437 is included because "extended ASCII" commonly refers to its graphical
+# characters; Latin-1 provides the accented letters used by ISO-8859-1.
+SPECIAL_CHARACTER_GROUPS = (
+    ('Common', tuple('©®™°•·…–—§¶†‡№')),
+    ('Checkmarks', tuple('✓✔☑✅✕✖✗✘☐☒')),
+    ('Arrows', tuple('←↑→↓↔↕↖↗↘↙⇐⇑⇒⇓⇔')),
+    ('Math', tuple('±×÷≠≈≤≥∞√∑∏∫∂∆∇∈∉∩∪∧∨⊂⊃⊆⊇')),
+    ('Currency', tuple('¢£¤¥€₩₹₽₺₫₴₦₱₪฿')),
+    ('Punctuation', tuple('¡¿«»‹›“”‘’‚„‰′″※')),
+    ('Greek', tuple('ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω')),
+    (
+        'Latin-1',
+        tuple(
+            character
+            for character in map(chr, range(0xA1, 0x100))
+            if character.isprintable() and not character.isspace()
+        ),
+    ),
+    (
+        'Extended ASCII (CP437)',
+        tuple(
+            character
+            for character in bytes(range(0x80, 0x100)).decode('cp437')
+            if character.isprintable() and not character.isspace()
+        ),
+    ),
+)
 
 @dataclass(order=True)
 class PrioritizedItem:
@@ -1018,6 +1049,10 @@ class RTFWindow:
             label='Hyperlink...',
             accelerator=f'{primary}+K',
             command=self.showInsertHyperlinkDialog,
+        )
+        insert_menu.add_command(
+            label='Special Character...',
+            command=self.showInsertSpecialCharacterDialog,
         )
         insert_menu.add_command(label='Table...', command=self.showInsertTableDialog)
         insert_menu.add_command(
@@ -2786,6 +2821,219 @@ class RTFWindow:
         link_win.bind('<Return>', lambda _event: apply_link())
         link_win.bind('<Escape>', lambda _event: self.killUIPopup())
         return 'break' if event is not None else link_win
+
+    def insertSpecialCharacter(self, character):
+        """Insert one Unicode character using the active typing style."""
+        if not character:
+            return None
+
+        self.text.edit_separator()
+        if self.text.tag_ranges('sel'):
+            self.text.delete('sel.first', 'sel.last')
+        self.insertStyledText('insert', character, self.typing_style)
+        self.text.edit_separator()
+        self.text.see('insert')
+        self.text.focus_set()
+        self.markCurrentDocumentModified()
+        self.updateToolbarStyleFromSelection()
+        return 'break'
+
+    def showInsertSpecialCharacterDialog(self, event=None):
+        """Show a categorized character palette for insertion into the note."""
+        if self.UI_popup is not None:
+            self.UI_popup.lift()
+            return 'break' if event is not None else None
+
+        self.UI_popup = (special_win := tk.Toplevel(self.window))
+        special_win.title('Insert Special Character')
+        special_win.geometry('650x500')
+        special_win.minsize(480, 380)
+        special_win.transient(self.window)
+        special_win.wm_protocol('WM_DELETE_WINDOW', self.killUIPopup)
+        special_win.grid_rowconfigure(0, weight=1)
+        special_win.grid_columnconfigure(0, weight=1)
+
+        content = ttk.Frame(special_win, padding=12)
+        content.grid(row=0, column=0, sticky='nsew')
+        content.grid_rowconfigure(1, weight=1)
+        content.grid_columnconfigure(0, weight=1)
+
+        category_names = [name for name, _characters in SPECIAL_CHARACTER_GROUPS]
+        characters_by_category = dict(SPECIAL_CHARACTER_GROUPS)
+        category_var = tk.StringVar(value=category_names[0])
+
+        category_row = ttk.Frame(content)
+        category_row.grid(row=0, column=0, sticky='ew', pady=(0, 8))
+        category_row.grid_columnconfigure(1, weight=1)
+        ttk.Label(category_row, text='Category:').grid(
+            row=0,
+            column=0,
+            sticky='w',
+            padx=(0, 8),
+        )
+        category_combo = ttk.Combobox(
+            category_row,
+            textvariable=category_var,
+            values=category_names,
+            state='readonly',
+        )
+        category_combo.grid(row=0, column=1, sticky='ew')
+
+        palette = ttk.Frame(content)
+        palette.grid(row=1, column=0, sticky='nsew')
+        palette.grid_rowconfigure(0, weight=1)
+        palette.grid_columnconfigure(0, weight=1)
+        character_canvas = tk.Canvas(
+            palette,
+            borderwidth=0,
+            highlightthickness=0,
+            height=280,
+        )
+        character_canvas.grid(row=0, column=0, sticky='nsew')
+        character_scrollbar = ttk.Scrollbar(
+            palette,
+            orient='vertical',
+            command=character_canvas.yview,
+        )
+        character_scrollbar.grid(row=0, column=1, sticky='ns')
+        character_canvas.configure(yscrollcommand=character_scrollbar.set)
+
+        character_frame = ttk.Frame(character_canvas, padding=2)
+        palette_window = character_canvas.create_window(
+            (0, 0),
+            window=character_frame,
+            anchor='nw',
+        )
+        character_frame.bind(
+            '<Configure>',
+            lambda _event: character_canvas.configure(
+                scrollregion=character_canvas.bbox('all'),
+            ),
+        )
+        character_canvas.bind(
+            '<Configure>',
+            lambda event: character_canvas.itemconfigure(
+                palette_window,
+                width=event.width,
+            ),
+        )
+
+        selected_character = tk.StringVar(value='')
+        character_detail = tk.StringVar(value='Select a character to see its name.')
+        detail_row = ttk.Frame(content, padding=(0, 10, 0, 4))
+        detail_row.grid(row=2, column=0, sticky='ew')
+        detail_row.grid_columnconfigure(1, weight=1)
+        ttk.Label(
+            detail_row,
+            textvariable=selected_character,
+            font=(self.DEFAULT_FONT_FAMILY, 24),
+            width=2,
+            anchor='center',
+        ).grid(row=0, column=0, rowspan=2, sticky='w', padx=(2, 10))
+        ttk.Label(
+            detail_row,
+            textvariable=character_detail,
+        ).grid(row=0, column=1, sticky='w')
+        ttk.Label(
+            detail_row,
+            text='Double-click a character to insert it immediately.',
+            foreground='#555555',
+        ).grid(row=1, column=1, sticky='w')
+
+        character_buttons = []
+        selected_button = [None]
+
+        def select_character(character, button):
+            selected_character.set(character)
+            code_point = f'U+{ord(character):04X}'
+            character_detail.set(
+                f'{code_point}  {unicodedata.name(character, "Unnamed character")}'
+            )
+            if selected_button[0] is not None:
+                selected_button[0].configure(relief='raised')
+            button.configure(relief='sunken')
+            selected_button[0] = button
+
+        def insert_selected():
+            character = selected_character.get()
+            if not character:
+                return None
+            self.insertSpecialCharacter(character)
+            self.killUIPopup()
+            self.text.focus_set()
+            return 'break'
+
+        def insert_from_double_click(character, button):
+            select_character(character, button)
+            return insert_selected()
+
+        def rebuild_palette(_event=None):
+            for button in character_buttons:
+                button.destroy()
+            character_buttons.clear()
+            selected_button[0] = None
+            selected_character.set('')
+            character_detail.set('Select a character to see its name.')
+
+            columns = 12
+            for column in range(columns):
+                character_frame.grid_columnconfigure(column, weight=1)
+            for position, character in enumerate(
+                characters_by_category[category_var.get()]
+            ):
+                button = tk.Button(
+                    character_frame,
+                    text=character,
+                    width=3,
+                    height=1,
+                    font=(self.DEFAULT_FONT_FAMILY, 16),
+                )
+                button.configure(
+                    command=lambda value=character, own_button=button: select_character(
+                        value,
+                        own_button,
+                    ),
+                )
+                button.bind(
+                    '<Double-Button-1>',
+                    lambda _double_event, value=character, own_button=button:
+                        insert_from_double_click(value, own_button),
+                )
+                button.grid(
+                    row=position // columns,
+                    column=position % columns,
+                    sticky='nsew',
+                    padx=2,
+                    pady=2,
+                )
+                character_buttons.append(button)
+
+            character_canvas.yview_moveto(0)
+            if character_buttons:
+                first_character = characters_by_category[category_var.get()][0]
+                select_character(first_character, character_buttons[0])
+            return None
+
+        category_combo.bind('<<ComboboxSelected>>', rebuild_palette)
+
+        button_row = ttk.Frame(content)
+        button_row.grid(row=3, column=0, sticky='e', pady=(8, 0))
+        ttk.Button(
+            button_row,
+            text='Cancel',
+            command=self.killUIPopup,
+        ).pack(side='right')
+        ttk.Button(
+            button_row,
+            text='Insert',
+            command=insert_selected,
+        ).pack(side='right', padx=(0, 8))
+
+        special_win.bind('<Escape>', lambda _event: self.killUIPopup())
+        special_win.bind('<Return>', lambda _event: insert_selected())
+        rebuild_palette()
+        category_combo.focus_set()
+        return 'break' if event is not None else special_win
 
     def showInsertTableDialog(self):
         if self.UI_popup is not None:

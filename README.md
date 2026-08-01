@@ -57,6 +57,13 @@ can open another node in the current notebook, a website or other registered
 URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
 text copy and paste.
 
+## Special characters
+
+Choose **Insert → Special Character...** to open a character picker. Symbols
+are grouped into categories including checkmarks, arrows, mathematical and
+currency symbols, Latin-1, and extended ASCII (CP437). Select a character and
+choose **Insert**, or double-click it, to add it at the text cursor.
+
 ## Horizontal lines
 
 Choose **Insert → Horizontal Line** to add a divider at the text cursor. The

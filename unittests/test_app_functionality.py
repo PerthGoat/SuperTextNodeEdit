@@ -783,6 +783,35 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(self.window.text.tag_cget(table_tag, "tabs"))
         self.assertIn(table_tag, self.window.text.tag_names("2.0"))
 
+    def test_insert_special_character_replaces_selection(self):
+        self.window.text.insert("1.0", "BeforeXAfter")
+        self.window.text.tag_add("sel", "1.6", "1.7")
+        self.window.text.mark_set("insert", "1.7")
+
+        result = self.window.insertSpecialCharacter("✓")
+
+        self.assertEqual("break", result)
+        self.assertEqual("Before✓After\n", self.window.text.get("1.0", "end"))
+
+    def test_insert_menu_offers_special_character_picker(self):
+        insert_menu = self.window.menus["insert"]
+        labels = [
+            insert_menu.entrycget(index, "label")
+            for index in range(insert_menu.index("end") + 1)
+            if insert_menu.type(index) != "separator"
+        ]
+
+        self.assertIn("Special Character...", labels)
+
+    def test_special_character_dialog_uses_the_shared_popup_slot(self):
+        dialog = self.window.showInsertSpecialCharacterDialog()
+
+        self.assertIs(dialog, self.window.UI_popup)
+        self.assertEqual("Insert Special Character", dialog.title())
+
+        self.window.killUIPopup()
+        self.assertIsNone(self.window.UI_popup)
+
     def test_insert_horizontal_rule_splits_text_and_uses_embedded_element(self):
         self.window.text.insert("1.0", "BeforeAfter")
         self.window.text.mark_set("insert", "1.6")
