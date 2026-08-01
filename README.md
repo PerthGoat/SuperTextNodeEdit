@@ -55,7 +55,8 @@ Highlight text and choose **Insert → Hyperlink...** or press **Ctrl+K**
 (**Command+K** on macOS). A link
 can open another node in the current notebook, a website or other registered
 URL, or a file URL. Hyperlinks are saved with the note and preserved by rich
-text copy and paste.
+text copy and paste. Right-click a hyperlink to copy its destination or edit
+the link.
 
 ## Special characters
 

@@ -886,6 +886,8 @@ class RTFWindow:
         self.context_table_column = self.tableColumnAtIndex(pointer_index)
         image_hit = self.embeddedImageAtPoint(event.x, event.y)
         self.context_image_name = image_hit["name"] if image_hit else None
+        self.context_hyperlink_tag = self.hyperlinkTagAt(pointer_index)
+        self.context_hyperlink_index = pointer_index
         selection = self.text.tag_ranges('sel')
         pointer_is_selected = (
             selection
@@ -902,6 +904,7 @@ class RTFWindow:
             has_selection=has_selection,
             has_image=bool(self.context_image_name),
             has_table=bool(self.context_table_range),
+            has_hyperlink=bool(self.context_hyperlink_tag),
         )
         self.text.focus_set()
 
@@ -917,6 +920,7 @@ class RTFWindow:
         has_selection=False,
         has_image=False,
         has_table=False,
+        has_hyperlink=False,
     ):
         """Populate the document context menu with applicable actions only."""
         editing_commands = []
@@ -945,6 +949,11 @@ class RTFWindow:
             ))
 
         hyperlink_commands = []
+        if has_hyperlink:
+            hyperlink_commands.extend((
+                ('Copy Link', self.copyContextHyperlink),
+                ('Edit Link...', self.editContextHyperlink),
+            ))
         if has_selection:
             hyperlink_commands.append(
                 ('Insert Hyperlink...', self.showInsertHyperlinkDialog),
@@ -2597,6 +2606,49 @@ class RTFWindow:
                     return tag
         return None
 
+    def hyperlinkRangeAt(self, tag, index):
+        """Return the contiguous range for a hyperlink tag at an index."""
+        if tag not in self.hyperlink_tags:
+            return None
+
+        ranges = list(self.text.tag_ranges(tag))
+        for range_start, range_finish in zip(ranges[0::2], ranges[1::2]):
+            if (
+                self.text.compare(index, '>=', range_start)
+                and self.text.compare(index, '<', range_finish)
+            ):
+                return self.text.index(range_start), self.text.index(range_finish)
+        return None
+
+    def copyContextHyperlink(self):
+        """Copy the destination of the most recently right-clicked link."""
+        tag = getattr(self, 'context_hyperlink_tag', None)
+        link = self.hyperlink_tags.get(tag)
+        if link is None:
+            return None
+
+        self.window.clipboard_clear()
+        self.window.clipboard_append(link['target'])
+        return 'break'
+
+    def editContextHyperlink(self):
+        """Select and edit the most recently right-clicked hyperlink."""
+        tag = getattr(self, 'context_hyperlink_tag', None)
+        index = getattr(self, 'context_hyperlink_index', None)
+        if tag is None or index is None:
+            return None
+
+        link_range = self.hyperlinkRangeAt(tag, index)
+        if link_range is None:
+            return None
+
+        start, finish = link_range
+        self.text.tag_remove('sel', '1.0', 'end')
+        self.text.tag_add('sel', start, finish)
+        self.text.mark_set('insert', start)
+        self.text.see(start)
+        return self.showInsertHyperlinkDialog()
+
     def removeHyperlinksFromRange(self, start, finish):
         for tag in list(self.hyperlink_tags):
             ranges = list(self.text.tag_ranges(tag))
@@ -2702,7 +2754,8 @@ class RTFWindow:
         existing_link = self.hyperlink_tags.get(existing_tag, {})
 
         self.UI_popup = (link_win := tk.Toplevel(self.window))
-        link_win.title('Insert Hyperlink')
+        dialog_title = 'Edit Hyperlink' if existing_tag else 'Insert Hyperlink'
+        link_win.title(dialog_title)
         link_win.geometry('520x235')
         link_win.resizable(True, False)
         link_win.transient(self.window)
@@ -2820,7 +2873,8 @@ class RTFWindow:
         ttk.Button(button_frame, text='Cancel', command=self.killUIPopup).pack(
             side='right',
         )
-        ttk.Button(button_frame, text='Insert', command=apply_link).pack(
+        action_label = 'Save' if existing_tag else 'Insert'
+        ttk.Button(button_frame, text=action_label, command=apply_link).pack(
             side='right',
             padx=(0, 8),
         )

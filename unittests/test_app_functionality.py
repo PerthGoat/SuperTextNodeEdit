@@ -568,6 +568,74 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         context_menu.tk_popup.assert_called_once_with(110, 220)
         context_menu.grab_release.assert_called_once_with()
 
+    def test_text_context_menu_includes_actions_for_right_clicked_hyperlink(self):
+        self.window.text.insert("1.0", "Read docs")
+        tag = self.window.applyHyperlinkToRange(
+            "1.5",
+            "1.9",
+            "url",
+            "https://example.com/docs",
+        )
+        context_menu = mock.Mock()
+        self.window.text_context_menu = context_menu
+        event = SimpleNamespace(x=10, y=10, x_root=110, y_root=220)
+
+        with mock.patch.object(self.window.text, "index", return_value="1.6"):
+            result = self.window.showTextContextMenu(event)
+
+        self.assertEqual("break", result)
+        self.assertEqual(tag, self.window.context_hyperlink_tag)
+        labels = [
+            call.kwargs["label"]
+            for call in context_menu.add_command.call_args_list
+        ]
+        self.assertIn("Copy Link", labels)
+        self.assertIn("Edit Link...", labels)
+        self.assertNotIn("Insert Hyperlink...", labels)
+
+    def test_copy_context_hyperlink_places_destination_on_clipboard(self):
+        self.window.text.insert("1.0", "Link")
+        tag = self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.4",
+            "url",
+            "https://example.com/path",
+        )
+        self.window.context_hyperlink_tag = tag
+
+        with (
+            mock.patch.object(self.window.window, "clipboard_clear") as clear,
+            mock.patch.object(self.window.window, "clipboard_append") as append,
+        ):
+            result = self.window.copyContextHyperlink()
+
+        self.assertEqual("break", result)
+        clear.assert_called_once_with()
+        append.assert_called_once_with("https://example.com/path")
+
+    def test_edit_context_hyperlink_selects_whole_link_and_opens_dialog(self):
+        self.window.text.insert("1.0", "Read docs now")
+        tag = self.window.applyHyperlinkToRange(
+            "1.5",
+            "1.9",
+            "url",
+            "https://example.com/docs",
+        )
+        self.window.context_hyperlink_tag = tag
+        self.window.context_hyperlink_index = "1.7"
+
+        with mock.patch.object(
+            self.window,
+            "showInsertHyperlinkDialog",
+            return_value="dialog",
+        ) as show_dialog:
+            result = self.window.editContextHyperlink()
+
+        self.assertEqual("dialog", result)
+        self.assertEqual("1.5", self.window.text.index("sel.first"))
+        self.assertEqual("1.9", self.window.text.index("sel.last"))
+        show_dialog.assert_called_once_with()
+
     def test_text_context_menu_enables_copy_image_for_right_clicked_image(self):
         context_menu = mock.Mock()
         self.window.text_context_menu = context_menu
