@@ -139,6 +139,7 @@ class RTFWindow:
     DEFAULT_FONT_SIZE = 12
     DEFAULT_TEXT_COLOR = None
     TEXT_CURSOR = 'xterm'
+    HYPERLINK_CURSOR = 'hand2'
     FORMAT_PAINTER_CURSOR = 'crosshair'
     IMAGE_RESIZE_HANDLE_SIZE = 8
     IMAGE_RESIZE_MIN_SIZE = 8
@@ -2625,7 +2626,7 @@ class RTFWindow:
         self.text.tag_bind(
             tag,
             '<Enter>',
-            lambda _event: self.configureTextCursor('hand2'),
+            lambda _event: self.configureTextCursor(self.HYPERLINK_CURSOR),
         )
         self.text.tag_bind(
             tag,
@@ -4419,7 +4420,16 @@ class RTFWindow:
             return None
 
         hit = self.imageResizeHitAtPoint(event.x, event.y)
-        self.configureTextCursor(self.imageResizeCursor(hit["handle"]) if hit else self.TEXT_CURSOR)
+        if hit:
+            cursor = self.imageResizeCursor(hit["handle"])
+        else:
+            pointer_index = self.text.index(f'@{event.x},{event.y}')
+            cursor = (
+                self.HYPERLINK_CURSOR
+                if self.hyperlinkTagAt(pointer_index)
+                else self.TEXT_CURSOR
+            )
+        self.configureTextCursor(cursor)
         return None
 
     def beginImageResize(self, event):

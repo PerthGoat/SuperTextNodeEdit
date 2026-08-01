@@ -2008,6 +2008,31 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         configure_mock.assert_called_once_with(cursor=self.window.TEXT_CURSOR)
         self.assertEqual(self.window.TEXT_CURSOR, self.window.current_text_cursor)
 
+    def test_text_motion_uses_pointer_cursor_over_hyperlink(self):
+        self.window.text.insert("1.0", "Link")
+        self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.4",
+            "url",
+            "https://example.com",
+        )
+        event = SimpleNamespace(x=5, y=5)
+
+        with (
+            mock.patch.object(self.window, "imageResizeHitAtPoint", return_value=None),
+            mock.patch.object(self.window.text, "index", return_value="1.1"),
+        ):
+            self.window.updateImageResizeCursor(event)
+
+        self.assertEqual(
+            self.window.HYPERLINK_CURSOR,
+            self.window.text.widget.cget("cursor"),
+        )
+        self.assertEqual(
+            self.window.HYPERLINK_CURSOR,
+            self.window.current_text_cursor,
+        )
+
     def test_activating_document_reapplies_cached_cursor_to_text_widget(self):
         document = self.window.active_document
         self.window.text.configure(cursor="sb_h_double_arrow")
