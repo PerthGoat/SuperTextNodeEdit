@@ -432,6 +432,10 @@ class RTFWindow:
             autoseparators=True,
             maxundo=-1,
         )
+        # A pathless tab is only a placeholder for the empty editor area.  It
+        # must not accept text that will be discarded when the first note is
+        # opened.
+        editor.configure(state='normal' if path else 'disabled')
         self.bindTextEditor(editor)
         tab_id = str(editor)
         document = OpenDocument(
@@ -536,6 +540,7 @@ class RTFWindow:
         self.active_document = document
         self.text = document.text
         self.openFile = document.path
+        document.text.configure(state='normal' if document.path else 'disabled')
         self.tkinter_imagelist = document.tkinter_imagelist
         self.embedded_images = document.embedded_images
         self.embedded_files = document.embedded_files

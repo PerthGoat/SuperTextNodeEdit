@@ -110,6 +110,11 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             start_worker=False,
         )
         self.window.window.withdraw()
+        self.initial_editor_state = self.window.text.widget.cget("state")
+        # Most tests in this class exercise low-level editor operations without
+        # first creating a note. Opt their scratch editor into the writable
+        # state explicitly; placeholder behavior is covered separately.
+        self.window.text.configure(state="normal")
         self.addCleanup(self.cleanup_window)
 
     def cleanup_window(self):
@@ -149,12 +154,18 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("alpha" + os.sep + "beta", self.window.get_node_path(child))
 
     def test_try_read_show_rtf_loads_selected_node_text(self):
+        self.assertEqual("disabled", self.initial_editor_state)
+        self.window.text.configure(state="disabled")
+        self.window.text.insert("1.0", "discarded text")
+        self.assertEqual("", self.window.text.get("1.0", "end-1c"))
+
         self.write_node("alpha", r"Hello{\par }World")
 
         self.window.populateNodeTree()
         self.window.tryReadShowRTF(None)
 
         self.assertEqual(str(self.node_dir / "alpha.rtf"), self.window.openFile)
+        self.assertEqual("normal", self.window.text.widget.cget("state"))
         self.assertEqual("Hello\nWorld\n", self.window.text.get("1.0", "end"))
 
     def test_single_click_previews_another_note_in_the_only_open_tab(self):
@@ -393,6 +404,7 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
         self.assertEqual(1, len(self.window.editor_tabs.tabs()))
         self.assertEqual("", self.window.openFile)
+        self.assertEqual("disabled", self.window.text.widget.cget("state"))
         saved_rtf = note_file.read_text(encoding="utf-8")
         self.assertIn("Alpha text", saved_rtf)
         self.assertNotIn("changed", saved_rtf)
