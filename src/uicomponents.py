@@ -1,84 +1,196 @@
 
 import tkinter as tk
 from tkinter import ttk
+from collections.abc import Callable
+from typing import Any, Literal, overload
 
 # This class exists to create a scrollable text object
 # which is just a multi-line text box with a scrollbar taped to it
 
 class ScrollableText(tk.Frame):
-  def __init__(self, parent, **kwargs):
-    # initalize this object to have the same properties as an
-    # initalized tk.Frame
-    # and initialize the frame with respect to the parent tkinter object
-    super().__init__(parent)
-    
-    # needed for proper reactive UI resizing
-    self.grid_rowconfigure(0, weight=1)
-    self.grid_columnconfigure(0, weight=1)
-    
-    # pass styling arguments to the text
-    text = tk.Text(self, **kwargs, wrap='word')
-    text.grid(row=0, column=0, sticky='nsew') # fill available space with text
-    
-    # set up scrollbar to scroll the text area
-    scrolly = tk.Scrollbar(self, command=text.yview)
-    scrolly.grid(row=0, column=1, sticky='nse') # won't auto-expand because column isn't configured with a weight
-    text.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
-    
-    # set some functions to be that of text because the text object is the main one being interacted with
-    self.configure = text.configure
-    self.delete = text.delete
-    self.insert = text.insert
-    self.get = text.get
-    self.see = text.see
-    self.dump = text.dump
-    self.bind = text.bind
-    self.image_create = text.image_create
-    self.index = text.index
-    self.tag_ranges = text.tag_ranges
+    def __init__(self, parent, **kwargs):
+        # initalize this object to have the same properties as an
+        # initalized tk.Frame
+        # and initialize the frame with respect to the parent tkinter object
+        super().__init__(parent)
+        
+        # needed for proper reactive UI resizing
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        # pass styling arguments to the text
+        wrap = kwargs.pop('wrap', 'word')
+        text = tk.Text(self, **kwargs, wrap=wrap)
+        self.widget = text
+        text.grid(row=0, column=0, sticky='nsew') # fill available space with text
+        
+        # set up scrollbar to scroll the text area
+        scrolly = tk.Scrollbar(self, command=text.yview)
+        scrolly.grid(row=0, column=1, sticky='nse') # won't auto-expand because column isn't configured with a weight
+        text.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
+
+        # Unwrapped documents need horizontal navigation. Keep the scrollbar
+        # out of the layout while wrapping is enabled so wrapped documents do
+        # not lose vertical space.
+        self.scrollx = tk.Scrollbar(self, orient='horizontal', command=text.xview)
+        text.config(xscrollcommand=self.scrollx.set)
+        self.set_wrap(wrap != 'none')
+        
+        # set some functions to be that of text because the text object is the main one being interacted with
+        self.delete = text.delete
+        self.insert = text.insert
+        self.get = text.get
+        self.see = text.see
+        self.dump = text.dump
+        self.focus_set = text.focus_set
+        self.bbox = text.bbox
+        self.dlineinfo = text.dlineinfo
+        self.image_create = text.image_create
+        self.image_cget = text.image_cget
+        self.image_configure = text.image_configure
+        self.image_names = text.image_names
+        self.window_create = text.window_create
+        self.edit_reset = text.edit_reset
+        self.edit_redo = text.edit_redo
+        self.edit_separator = text.edit_separator
+        self.edit_undo = text.edit_undo
+        self.edit_modified = text.edit_modified
+        self.index = text.index
+        self.compare = text.compare
+        self.mark_gravity = text.mark_gravity
+        self.mark_set = text.mark_set
+        self.mark_unset = text.mark_unset
+        self.tag_add = text.tag_add
+        self.tag_bind = text.tag_bind
+        self.tag_cget = text.tag_cget
+        self.tag_configure = text.tag_configure
+        self.tag_delete = text.tag_delete
+        self.tag_names = text.tag_names
+        self.tag_nextrange = text.tag_nextrange
+        self.tag_remove = text.tag_remove
+        self.tag_ranges = text.tag_ranges
+        self.update_idletasks = text.update_idletasks
+        self.winfo_width = text.winfo_width
+
+    def set_wrap(self, enabled):
+        """Enable word wrapping and show horizontal scrolling only as needed."""
+        self.widget.configure(wrap='word' if enabled else 'none')
+        if enabled:
+            self.scrollx.grid_remove()
+        else:
+            self.scrollx.grid(row=1, column=0, sticky='ew')
+
+    def configure(self, cnf=None, **kwargs) -> Any:
+        """Forward configuration to the inner text widget."""
+        return self.widget.configure(cnf, **kwargs)
+
+    config = configure
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None = None,
+        func: Callable[[tk.Event[tk.Misc]], object] | None = None,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> str: ...
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    @overload
+    def bind(
+        self,
+        *,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    def bind(self, sequence=None, func=None, add=None) -> Any:
+        """Bind document events on the inner text widget."""
+        return self.widget.bind(sequence, func, add)
 
 # Scrollable treeview, to add horizontal and vertical scrolling to the tree view
 class ScrollableTreeView(tk.Frame):
-  def __init__(self, parent, width, **kwargs):
-    # initalize this object to have the same properties as an
-    # initalized tk.Frame
-    # and initialize the frame with respect to the parent tkinter object
-    super().__init__(parent, width=width)
-    
-    # stops treeview from expanding the containing frame
-    self.pack_propagate(0)
-    self.grid_propagate(0)
-    
-    # needed for proper reactive UI resizing
-    self.grid_rowconfigure(0, weight=1)
-    self.grid_columnconfigure(1, weight=1)
-    
-    tree = ttk.Treeview(self, **kwargs)
-    tree.grid(row=0, column=1, sticky='nsew')
-    
-    # set up vertical scrollbar to scroll the treeview
-    scrolly = tk.Scrollbar(self, command=tree.yview)
-    scrolly.grid(row=0, column=0, sticky='nsw') # won't auto-expand because column isn't configured with a weight
-    tree.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
-    
-    # set up horizontal scrollbar to scroll the treeview
-    scrollx = tk.Scrollbar(self, command=tree.xview, orient='horizontal')
-    scrollx.grid(row=1, column=1, sticky='sew') # won't auto-expand because column isn't configured with a weight
-    tree.config(xscrollcommand=scrollx.set) # sets the scrollbar to match where the text is scrolled to
-    
-    self.heading = tree.heading
-    self.column = tree.column
-    self.bind = tree.bind
-    self.delete = tree.delete
-    self.get_children = tree.get_children
-    self.insert = tree.insert
-    self.item = tree.item
-    self.selection_set = tree.selection_set
-    self.selection = tree.selection
-    self.parent = tree.parent
-    self.identify = tree.identify
-    self.selection_remove = tree.selection_remove
-    self.configure = tree.configure
-    self.xview = tree.xview
-    self.move = tree.move
-    self.focus = tree.focus
+    def __init__(self, parent, width, **kwargs):
+        # initalize this object to have the same properties as an
+        # initalized tk.Frame
+        # and initialize the frame with respect to the parent tkinter object
+        super().__init__(parent, width=width)
+        
+        # stops treeview from expanding the containing frame
+        self.pack_propagate(False)
+        self.grid_propagate(False)
+        
+        # needed for proper reactive UI resizing
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        
+        tree = ttk.Treeview(self, **kwargs)
+        tree.grid(row=0, column=1, sticky='nsew')
+        self.widget = tree
+        
+        # set up vertical scrollbar to scroll the treeview
+        scrolly = tk.Scrollbar(self, command=tree.yview)
+        scrolly.grid(row=0, column=0, sticky='nsw') # won't auto-expand because column isn't configured with a weight
+        tree.config(yscrollcommand=scrolly.set) # sets the scrollbar to match where the text is scrolled to
+        
+        # set up horizontal scrollbar to scroll the treeview
+        scrollx = tk.Scrollbar(self, command=tree.xview, orient='horizontal')
+        scrollx.grid(row=1, column=1, sticky='sew') # won't auto-expand because column isn't configured with a weight
+        tree.config(xscrollcommand=scrollx.set) # sets the scrollbar to match where the text is scrolled to
+        
+        self.heading = tree.heading
+        self.column = tree.column
+        self.bbox = tree.bbox
+        self.delete = tree.delete
+        self.get_children = tree.get_children
+        self.insert = tree.insert
+        self.item = tree.item
+        self.selection_set = tree.selection_set
+        self.selection = tree.selection
+        self.parent = tree.parent
+        self.identify = tree.identify
+        self.selection_remove = tree.selection_remove
+        self.xview = tree.xview
+        self.move = tree.move
+        self.focus = tree.focus
+        self.see = tree.see
+
+    def configure(self, cnf=None, **kwargs) -> Any:
+        """Forward configuration to the inner tree widget."""
+        return self.widget.configure(cnf, **kwargs)
+
+    config = configure
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None = None,
+        func: Callable[[tk.Event[tk.Misc]], object] | None = None,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> str: ...
+
+    @overload
+    def bind(
+        self,
+        sequence: str | None,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    @overload
+    def bind(
+        self,
+        *,
+        func: str,
+        add: Literal["", "+"] | bool | None = None,
+    ) -> None: ...
+
+    def bind(self, sequence=None, func=None, add=None) -> Any:
+        """Bind tree events on the inner tree widget."""
+        return self.widget.bind(sequence, func, add)
