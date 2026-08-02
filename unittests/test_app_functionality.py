@@ -1,6 +1,7 @@
 import configparser
 import hashlib
 import importlib.util
+import json
 import os
 import struct
 import subprocess
@@ -152,6 +153,69 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         )
         child = self.window.tree.get_children(root_items[0])[0]
         self.assertEqual("alpha" + os.sep + "beta", self.window.get_node_path(child))
+
+    def test_move_note_down_persists_manual_root_order_in_ini(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.write_node("gamma", "Gamma text")
+        self.window.populateNodeTree()
+        alpha = self.window.find_self("alpha")
+        self.window.tree.selection_set(alpha)
+        self.window.selected_node = alpha
+
+        result = self.window.moveSelectedNodeDown()
+
+        self.assertEqual("break", result)
+        self.assertEqual(
+            ["beta", "alpha", "gamma"],
+            [
+                self.window.tree.item(item)["text"]
+                for item in self.window.tree.get_children()
+            ],
+        )
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(self.root / "rtfjournal.ini", encoding="utf-8")
+        self.assertEqual(
+            {"": ["beta", "alpha", "gamma"]},
+            json.loads(config["note_order"]["parents"]),
+        )
+
+        # Reload the saved value and rebuild the tree as a restart would.
+        self.window.note_order = self.window.loadNoteOrdering()
+        self.window.populateNodeTree()
+        self.assertEqual(
+            ["beta", "alpha", "gamma"],
+            [
+                self.window.tree.item(item)["text"]
+                for item in self.window.tree.get_children()
+            ],
+        )
+
+    def test_manual_order_is_scoped_to_each_parent(self):
+        self.write_node("parent", "Parent text")
+        self.write_node(Path("parent") / "alpha", "Alpha text")
+        self.write_node(Path("parent") / "beta", "Beta text")
+        self.window.populateNodeTree()
+        parent = self.window.find_self("parent")
+        self.window.populateNodeTree(str(self.node_dir / "parent") + os.sep, parent)
+        alpha = self.window.find_self(os.path.join("parent", "alpha"))
+        self.window.tree.selection_set(alpha)
+        self.window.selected_node = alpha
+
+        self.window.moveSelectedNodeDown()
+        self.window.populateNodeTree(str(self.node_dir / "parent") + os.sep, parent)
+
+        self.assertEqual(
+            ["beta", "alpha"],
+            [
+                self.window.tree.item(item)["text"]
+                for item in self.window.tree.get_children(parent)
+            ],
+        )
+        self.assertEqual(["parent"], [
+            self.window.tree.item(item)["text"]
+            for item in self.window.tree.get_children()
+        ])
 
     def test_try_read_show_rtf_loads_selected_node_text(self):
         self.assertEqual("disabled", self.initial_editor_state)
@@ -745,6 +809,27 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue((self.node_dir / "renamedNode.rtf").is_file())
         self.assertEqual("renamedNode", self.window.tree.item(self.window.selected_node)["text"])
         self.assertEqual("renamedNode", self.window.get_node_path(self.window.selected_node))
+
+    def test_rename_preserves_a_notes_manual_position(self):
+        self.write_node("alpha", "Alpha text")
+        self.write_node("beta", "Beta text")
+        self.write_node("gamma", "Gamma text")
+        self.window.populateNodeTree()
+        beta = self.window.find_self("beta")
+        self.window.tree.selection_set(beta)
+        self.window.selected_node = beta
+        self.window.moveSelectedNodeDown()
+        gamma = self.window.find_self("gamma")
+
+        self.window.renameFileAndDir(gamma, "gamma", "delta")
+
+        self.assertEqual(
+            ["alpha", "delta", "beta"],
+            [
+                self.window.tree.item(item)["text"]
+                for item in self.window.tree.get_children()
+            ],
+        )
 
     def test_duplicate_node_copies_subtree_selects_copy_and_starts_rename(self):
         source_file = self.write_node("alpha", "Alpha text")

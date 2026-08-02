@@ -15,6 +15,7 @@ import datetime
 # these handle parsing, renaming, removing, and moving the various node/file trees
 import io
 import html
+import json
 import os
 import glob
 import hashlib
@@ -157,16 +158,20 @@ class RTFWindow:
         self.alternate_modifier = 'Option' if self.is_macos else 'Alt'
         self.alternate_accelerator = 'Option' if self.is_macos else 'Alt'
         
+        self.configFile = os.path.abspath(os.path.normpath(configFile))
+
         # make sure a config file exists, and if not, create a base one
-        if not os.path.exists(configFile):
-            with open(configFile, 'w') as fi:
+        if not os.path.exists(self.configFile):
+            with open(self.configFile, 'w', encoding='utf-8') as fi:
                 fi.write(BASE_CONFIG_CONST)
 
-        if not os.path.isfile(configFile):
+        if not os.path.isfile(self.configFile):
             messagebox.showerror('FAILOUT', 'FAILOUT: CONFIGFILE IS NOT A FILE!')
 
-        config_dict = configparser.ConfigParser()
-        config_dict.read(configFile)
+        config_dict = configparser.ConfigParser(interpolation=None)
+        config_dict.read(self.configFile, encoding='utf-8')
+        self.config_dict = config_dict
+        self.note_order = self.loadNoteOrdering()
         
         # set up public variables to this class
         self.RTF_HEADER = config_dict['constants']['RTF_HEADER'] + ' ' # read in RTF header
@@ -302,6 +307,8 @@ class RTFWindow:
         self.node_context_menu.add_command(label='Rename', command=self.renameNode)
         self.node_context_menu.add_command(label='Duplicate', command=self.duplicateNode)
         self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
+        self.node_context_menu.add_command(label='Move Up', command=self.moveSelectedNodeUp)
+        self.node_context_menu.add_command(label='Move Down', command=self.moveSelectedNodeDown)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
         self.node_context_menu.add_command(label='Add Root Node', command=self.createRootNode)
         self.node_context_menu.add_separator()
@@ -317,6 +324,16 @@ class RTFWindow:
         # double-click, which explicitly opens a separate tab.
         self.tree.bind('<ButtonRelease-1>', self.scheduleNodePreview, add='+')
         self.tree.bind('<Double-1>', self.openNodeFromTreeDoubleClick)
+        self.tree.bind(
+            f'<{self.alternate_modifier}-Up>',
+            self.moveSelectedNodeUp,
+            add='+',
+        )
+        self.tree.bind(
+            f'<{self.alternate_modifier}-Down>',
+            self.moveSelectedNodeDown,
+            add='+',
+        )
         for arrow_key in ('Up', 'Down', 'Left', 'Right'):
             self.tree.bind(
                 f'<KeyRelease-{arrow_key}>',
@@ -1065,6 +1082,16 @@ class RTFWindow:
         node_menu.add_command(label='Add Child', command=self.createNewNode)
         node_menu.add_command(label='Rename', command=self.renameNode)
         node_menu.add_command(label='Move', command=self.beginMoveNode)
+        node_menu.add_command(
+            label='Move Up',
+            accelerator=f'{alternate}+Up',
+            command=self.moveSelectedNodeUp,
+        )
+        node_menu.add_command(
+            label='Move Down',
+            accelerator=f'{alternate}+Down',
+            command=self.moveSelectedNodeDown,
+        )
         node_menu.add_command(label='Archive', command=self.archiveSelectedNode)
         node_menu.add_command(label='Browse Archive...', command=self.showArchiveDialog)
         node_menu.add_separator()
@@ -1630,6 +1657,16 @@ class RTFWindow:
             messagebox.showerror('Restore failed', str(exc))
             return None
 
+        restored_normalized = self.normalizeNoteOrderPath(restored_path)
+        restored_parent = (
+            restored_normalized.rsplit('/', 1)[0]
+            if '/' in restored_normalized
+            else ''
+        )
+        restored_siblings = self.noteNamesOnDisk(restored_parent)
+        self.updateNoteOrdering(
+            lambda: self.setParentNoteOrder(restored_parent, restored_siblings)
+        )
         self.populateNodeTree()
         self.selectNodePath(restored_path, open_document=False)
         self.startArchiveSearch()
@@ -1807,6 +1844,232 @@ class RTFWindow:
 
     def _node_root_path(self):
         return os.path.abspath(os.path.normpath(self.nodeDir))
+
+    def normalizeNoteOrderPath(self, relative_path):
+        """Use portable forward-slash keys for parent paths in the config."""
+        normalized = os.path.normpath(str(relative_path or ''))
+        if normalized in ('', '.'):
+            return ''
+        return normalized.replace(os.sep, '/')
+
+    def loadNoteOrdering(self):
+        """Load per-parent sibling lists, ignoring malformed optional data."""
+        raw_order = self.config_dict.get('note_order', 'parents', fallback='{}')
+        try:
+            stored_order = json.loads(raw_order)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(stored_order, dict):
+            return {}
+
+        note_order = {}
+        for parent_path, names in stored_order.items():
+            if not isinstance(parent_path, str) or not isinstance(names, list):
+                continue
+            unique_names = []
+            for name in names:
+                if isinstance(name, str) and name not in unique_names:
+                    unique_names.append(name)
+            if unique_names:
+                note_order[self.normalizeNoteOrderPath(parent_path)] = unique_names
+        return note_order
+
+    def saveNoteOrdering(self):
+        """Atomically persist note ordering without introducing another file format."""
+        if not self.config_dict.has_section('note_order'):
+            self.config_dict.add_section('note_order')
+        stored_order = {
+            parent: names
+            for parent, names in sorted(self.note_order.items())
+            if names
+        }
+        self.config_dict.set(
+            'note_order',
+            'parents',
+            json.dumps(stored_order, ensure_ascii=False, separators=(',', ':')),
+        )
+
+        config_directory = os.path.dirname(self.configFile) or os.curdir
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix='.supertext-',
+            suffix='.ini',
+            dir=config_directory,
+            text=True,
+        )
+        os.close(descriptor)
+        try:
+            with open(temporary_path, 'w', encoding='utf-8') as config_file:
+                self.config_dict.write(config_file)
+            os.replace(temporary_path, self.configFile)
+        finally:
+            if os.path.exists(temporary_path):
+                try:
+                    os.remove(temporary_path)
+                except OSError:
+                    pass
+
+    def updateNoteOrdering(self, update):
+        """Apply and save an ordering update, rolling memory back on failure."""
+        previous_order = {
+            parent: list(names)
+            for parent, names in self.note_order.items()
+        }
+        update()
+        try:
+            self.saveNoteOrdering()
+        except OSError as exc:
+            self.note_order = previous_order
+            messagebox.showerror(
+                'Could not save note order',
+                f'The note order could not be saved: {exc}',
+            )
+            return False
+        return True
+
+    def orderedNoteNames(self, parent_path, names):
+        """Return current sibling names in saved order, then new names alphabetically."""
+        current_names = list(dict.fromkeys(names))
+        current_set = set(current_names)
+        configured = self.note_order.get(
+            self.normalizeNoteOrderPath(parent_path),
+            [],
+        )
+        ordered = [name for name in configured if name in current_set]
+        ordered_set = set(ordered)
+        ordered.extend(sorted(
+            (name for name in current_names if name not in ordered_set),
+            key=lambda name: (name.casefold(), name),
+        ))
+        return ordered
+
+    def noteNamesOnDisk(self, parent_path):
+        parent_directory = (
+            self.resolveNodePath(parent_path)
+            if parent_path
+            else self._node_root_path()
+        )
+        names = [
+            os.path.splitext(os.path.basename(path))[0]
+            for path in glob.glob(os.path.join(parent_directory, '*.rtf'))
+        ]
+        return self.orderedNoteNames(parent_path, names)
+
+    def orderedNodeFiles(self, relative_files):
+        """Order a shallow lazy-load batch while inserting parents first."""
+        files_by_parent = {}
+        for relative_file in relative_files:
+            note_path = os.path.splitext(os.path.normpath(relative_file))[0]
+            parent_path = os.path.dirname(note_path)
+            if parent_path == '.':
+                parent_path = ''
+            files_by_parent.setdefault(parent_path, {})[
+                os.path.basename(note_path)
+            ] = relative_file
+
+        ordered_files = []
+        parent_paths = sorted(
+            files_by_parent,
+            key=lambda path: (
+                self.normalizeNoteOrderPath(path).count('/'),
+                self.normalizeNoteOrderPath(path).casefold(),
+            ),
+        )
+        for parent_path in parent_paths:
+            files_by_name = files_by_parent[parent_path]
+            for name in self.orderedNoteNames(parent_path, files_by_name):
+                ordered_files.append(files_by_name[name])
+        return ordered_files
+
+    def setParentNoteOrder(self, parent_path, names):
+        key = self.normalizeNoteOrderPath(parent_path)
+        unique_names = list(dict.fromkeys(names))
+        if unique_names:
+            self.note_order[key] = unique_names
+        else:
+            self.note_order.pop(key, None)
+
+    def persistSiblingOrder(self, parent_node):
+        parent_path = self.get_node_path(parent_node) if parent_node else ''
+        names = [
+            self.tree.item(child)['text']
+            for child in self.tree.get_children(parent_node)
+        ]
+        return self.updateNoteOrdering(
+            lambda: self.setParentNoteOrder(parent_path, names)
+        )
+
+    def removeNodeFromOrdering(self, relative_path, keep_descendants=False):
+        normalized_path = self.normalizeNoteOrderPath(relative_path)
+        parent_path, node_name = (
+            normalized_path.rsplit('/', 1)
+            if '/' in normalized_path
+            else ('', normalized_path)
+        )
+        remaining_names = self.noteNamesOnDisk(parent_path)
+
+        def update():
+            self.setParentNoteOrder(
+                parent_path,
+                [name for name in remaining_names if name != node_name],
+            )
+            if not keep_descendants:
+                descendant_prefix = normalized_path + '/'
+                for key in list(self.note_order):
+                    if key == normalized_path or key.startswith(descendant_prefix):
+                        self.note_order.pop(key, None)
+
+        return self.updateNoteOrdering(update)
+
+    def remapNodeOrdering(
+        self,
+        old_path,
+        new_path,
+        old_sibling_names,
+        new_sibling_names,
+    ):
+        """Preserve a node's position and all child order when its path changes."""
+        old_normalized = self.normalizeNoteOrderPath(old_path)
+        new_normalized = self.normalizeNoteOrderPath(new_path)
+        old_parent, old_name = (
+            old_normalized.rsplit('/', 1)
+            if '/' in old_normalized
+            else ('', old_normalized)
+        )
+        new_parent, new_name = (
+            new_normalized.rsplit('/', 1)
+            if '/' in new_normalized
+            else ('', new_normalized)
+        )
+
+        def update():
+            if old_parent == new_parent:
+                renamed_siblings = [
+                    new_name if name == old_name else name
+                    for name in old_sibling_names
+                ]
+                self.setParentNoteOrder(old_parent, renamed_siblings)
+            else:
+                self.setParentNoteOrder(
+                    old_parent,
+                    [name for name in old_sibling_names if name != old_name],
+                )
+                destination_names = [
+                    name for name in new_sibling_names
+                    if name not in (old_name, new_name)
+                ]
+                destination_names.append(new_name)
+                self.setParentNoteOrder(new_parent, destination_names)
+
+            descendant_prefix = old_normalized + '/'
+            remapped = {}
+            for key, names in list(self.note_order.items()):
+                if key == old_normalized or key.startswith(descendant_prefix):
+                    suffix = key[len(old_normalized):]
+                    remapped[new_normalized + suffix] = names
+                    self.note_order.pop(key, None)
+            self.note_order.update(remapped)
+
+        return self.updateNoteOrdering(update)
 
     def resolveNodePath(self, relative_path):
         root = self._node_root_path()
@@ -5309,6 +5572,39 @@ class RTFWindow:
         if saved_count:
             messagebox.showinfo('Saved files', f'Saved {saved_count} open note(s).')
         return 'break'
+
+    def moveSelectedNodeBy(self, offset, event=None):
+        """Move the selected note within its current sibling list and save it."""
+        selection = self.tree.selection()
+        node = selection[0] if selection else self.selected_node
+        if not node:
+            return 'break'
+
+        self.cancelPendingNodePreview()
+        parent = self.get_node_parent(node)
+        siblings = list(self.tree.get_children(parent))
+        try:
+            old_index = siblings.index(node)
+        except ValueError:
+            return 'break'
+        new_index = old_index + offset
+        if new_index < 0 or new_index >= len(siblings):
+            return 'break'
+
+        self.tree.move(node, parent, new_index)
+        if not self.persistSiblingOrder(parent):
+            self.tree.move(node, parent, old_index)
+        self.tree.selection_set(node)
+        self.tree.focus(item=node)
+        self.tree.see(node)
+        self.selected_node = node
+        return 'break'
+
+    def moveSelectedNodeUp(self, event=None):
+        return self.moveSelectedNodeBy(-1, event)
+
+    def moveSelectedNodeDown(self, event=None):
+        return self.moveSelectedNodeBy(1, event)
     
     def createRootNode(self):
         """Create a node at the top level regardless of the current selection."""
@@ -5338,13 +5634,15 @@ class RTFWindow:
         with open(file_path, 'w') as fi:
             fi.write(self.RTF_HEADER + '}')
         
-        return self.tree.insert(
+        new_node = self.tree.insert(
             sel,
             'end',
             text=newNodeName,
             values=('',),
             iid=self.getNextTkinterItemId(),
         )
+        self.persistSiblingOrder(sel)
+        return new_node
 
     def documentIsUnderNodePath(self, document_path, node_path):
         document_path = self.normalizedDocumentPath(document_path)
@@ -5428,6 +5726,9 @@ class RTFWindow:
             messagebox.showerror('Archive failed', str(exc))
             return None
 
+        # Keep descendant order metadata so restoring the archive also restores
+        # the ordering within its subtree.
+        self.removeNodeFromOrdering(relative_path, keep_descendants=True)
         self.populateNodeTree()
         messagebox.showinfo(
             'Notes archived',
@@ -5443,7 +5744,8 @@ class RTFWindow:
         if len(parent) == 0:
             return None
 
-        path = self.resolveNodePath(self.get_node_path(parent))
+        relative_path = self.get_node_path(parent)
+        path = self.resolveNodePath(relative_path)
         result = messagebox.askquestion('Delete', f'Are you sure you want to delete {self.tree.item(parent)["text"]}?')
         
         if result == 'yes':
@@ -5456,6 +5758,7 @@ class RTFWindow:
             
             shutil.rmtree(path)
             os.remove(path + '.rtf')
+            self.removeNodeFromOrdering(relative_path)
             self.closeDocumentsUnderNodePath(path)
         else:
             pass
@@ -5471,6 +5774,23 @@ class RTFWindow:
             messagebox.showerror('Error Renaming Node', str(e) or 'Error Renaming Node')
             return None
 
+        old_normalized = self.normalizeNoteOrderPath(old_path)
+        requested_new_normalized = self.normalizeNoteOrderPath(
+            os.path.relpath(newpath, self._node_root_path())
+        )
+        old_parent_path = old_normalized.rsplit('/', 1)[0] if '/' in old_normalized else ''
+        requested_new_parent = (
+            requested_new_normalized.rsplit('/', 1)[0]
+            if '/' in requested_new_normalized
+            else ''
+        )
+        old_sibling_names = self.noteNamesOnDisk(old_parent_path)
+        new_sibling_names = (
+            old_sibling_names
+            if old_parent_path == requested_new_parent
+            else self.noteNamesOnDisk(requested_new_parent)
+        )
+
         shutil.move(old_path_withnodedir, newpath)
         shutil.move(old_path_withnodedir + '.rtf', newpath + '.rtf')
         self.remapOpenDocumentPaths(old_path_withnodedir, newpath)
@@ -5478,6 +5798,15 @@ class RTFWindow:
         old_parent_path = os.path.dirname(os.path.normpath(old_path))
         relative_newpath = os.path.relpath(newpath, self._node_root_path())
         new_parent_path = os.path.dirname(relative_newpath)
+        if new_parent_path == '.':
+            new_parent_path = ''
+
+        self.remapNodeOrdering(
+            old_path,
+            relative_newpath,
+            old_sibling_names,
+            new_sibling_names,
+        )
 
         def refresh_parent(parent_path):
             parent_node = self.find_self(parent_path) if parent_path else ''
@@ -5543,6 +5872,7 @@ class RTFWindow:
             else self._node_root_path()
         )
         self.populateNodeTree(parent_path, parent_node)
+        self.persistSiblingOrder(parent_node)
 
         duplicate_node = self.find_self(duplicate_relative_path)
         self.tree.selection_set(duplicate_node)
@@ -5845,6 +6175,7 @@ class RTFWindow:
         files = files + files_second_level
         
         files = [os.path.relpath(os.path.abspath(os.path.normpath(x)), self._node_root_path()) for x in files]
+        files = self.orderedNodeFiles(files)
         
         old_tree_len = len(self.tree.get_children())
         for fi in files:
