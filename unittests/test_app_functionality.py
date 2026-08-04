@@ -1469,6 +1469,90 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertIn(self.window.clip.TEXT, copied_types)
         self.assertIn(self.window.clip.RTF_NO_OBJ, copied_types)
 
+    def test_hyperlink_copy_sets_standard_rtf_and_html_formats(self):
+        self.window.text.insert("1.0", "Read the docs now")
+        self.window.applyHyperlinkToRange(
+            "1.9",
+            "1.13",
+            "url",
+            "https://example.com/docs?topic=rtf&mode=copy",
+        )
+        self.window.text.tag_add("sel", "1.0", "1.17")
+
+        self.window.copyFromClipboard(None)
+
+        rtf_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == self.window.clip.RTF_NO_OBJ
+        ).decode("utf-8")
+        self.assertIn(r'\field', rtf_payload)
+        self.assertIn(
+            r'HYPERLINK "https://example.com/docs?topic=rtf&mode=copy"',
+            rtf_payload,
+        )
+        self.assertIn(r'\supertextlink', rtf_payload)
+
+        html_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == 0xC125
+        )
+        self.assertIn(
+            b'<a href="https://example.com/docs?topic=rtf&amp;mode=copy">docs</a>',
+            html_payload,
+        )
+
+    def test_copy_starting_inside_hyperlink_keeps_link_on_clipboard(self):
+        self.window.text.insert("1.0", "Linked words")
+        self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.12",
+            "url",
+            "https://example.com/linked",
+        )
+        self.window.text.tag_add("sel", "1.3", "1.9")
+
+        self.window.copyFromClipboard(None)
+
+        html_payload = next(
+            data
+            for data, data_type in self.window.clip.set_calls
+            if data_type == 0xC125
+        )
+        self.assertIn(
+            b'<a href="https://example.com/linked">ked wo</a>',
+            html_payload,
+        )
+
+    def test_standard_hyperlink_clipboard_rtf_pastes_back_without_instruction(self):
+        self.window.text.insert("1.0", "Link")
+        self.window.applyHyperlinkToRange(
+            "1.0",
+            "1.4",
+            "url",
+            "https://example.com",
+        )
+        clipboard_rtf = self.window.convertToRTF(
+            "1.0",
+            "1.4",
+            standard_hyperlinks=True,
+        )
+
+        self.window.text.delete("1.0", "end")
+        self.window.hyperlink_tags = {}
+        self.window.hyperlink_tag_counter = 0
+        self.window.displayNestedRTFStructure(
+            app.RTFParser(clipboard_rtf).parseme(),
+        )
+
+        self.assertEqual("Link", self.window.text.get("1.0", "end-1c"))
+        restored_tag = self.window.hyperlinkTagAt("1.1")
+        self.assertEqual(
+            "https://example.com",
+            self.window.hyperlink_tags[restored_tag]["target"],
+        )
+
     def test_copy_color_when_selection_matches_exact_tag_boundaries(self):
         self.window.openFile = str(self.node_dir / "scratch.rtf")
         self.window.text.insert("1.0", "Red plain")
