@@ -119,6 +119,7 @@ class OpenDocument:
         "color": None,
         "bold": False,
         "italic": False,
+        "underline": False,
         "alignment": "left",
     })
     current_text_cursor: str = 'xterm'
@@ -274,6 +275,7 @@ class RTFWindow:
         self.font_size_var = tk.IntVar(value=self.DEFAULT_FONT_SIZE)
         self.bold_menu_var = tk.BooleanVar(value=False)
         self.italic_menu_var = tk.BooleanVar(value=False)
+        self.underline_menu_var = tk.BooleanVar(value=False)
         self.center_menu_var = tk.BooleanVar(value=False)
         self.format_painter_menu_var = tk.BooleanVar(value=False)
         self.wrap_text_var = tk.BooleanVar(value=True)
@@ -401,6 +403,7 @@ class RTFWindow:
             self.bindShortcut(editor, 'z', self.redoDocument, shift=True)
         self.bindShortcut(editor, 'b', lambda _: self.toggleBoldForSelection())
         self.bindShortcut(editor, 'i', lambda _: self.toggleItalicForSelection())
+        self.bindShortcut(editor, 'u', lambda _: self.toggleUnderlineForSelection())
         self.bindShortcut(editor, 'k', self.showInsertHyperlinkDialog)
         self.bindShortcut(editor, 'e', lambda _: self.toggleCenterAlignmentForSelection())
         self.bindShortcut(editor, 'c', self.toggleFormatPainter, shift=True)
@@ -1153,6 +1156,12 @@ class RTFWindow:
             accelerator=f'{primary}+I',
             variable=self.italic_menu_var,
             command=self.toggleItalicForSelection,
+        )
+        format_menu.add_checkbutton(
+            label='Underline',
+            accelerator=f'{primary}+U',
+            variable=self.underline_menu_var,
+            command=self.toggleUnderlineForSelection,
         )
         format_menu.add_checkbutton(
             label='Centered Text',
@@ -2156,6 +2165,7 @@ class RTFWindow:
             "color": self.DEFAULT_TEXT_COLOR,
             "bold": False,
             "italic": False,
+            "underline": False,
             "alignment": "left",
         }
 
@@ -2187,6 +2197,7 @@ class RTFWindow:
             bool(style.get("bold", False)),
             bool(style.get("italic", False)),
             self.normalizeAlignment(style.get("alignment", "left")),
+            bool(style.get("underline", False)),
         )
 
     def getStyleTag(self, style):
@@ -2207,6 +2218,7 @@ class RTFWindow:
             "bold": key[3],
             "italic": key[4],
             "alignment": key[5],
+            "underline": key[6],
         }
 
         font_style_parts = []
@@ -2224,6 +2236,8 @@ class RTFWindow:
 
         if key[2] is not None:
             tag_options["foreground"] = key[2]
+        if key[6]:
+            tag_options["underline"] = True
         self.text.tag_configure(tag, **tag_options)
 
         return tag
@@ -2276,6 +2290,7 @@ class RTFWindow:
         self.font_size_var.set(style["font_size"])
         self.bold_menu_var.set(style["bold"])
         self.italic_menu_var.set(style["italic"])
+        self.underline_menu_var.set(style["underline"])
         self.center_menu_var.set(style["alignment"] == "center")
 
     def setTypingStyleProperty(self, property_name, value):
@@ -2718,6 +2733,9 @@ class RTFWindow:
 
     def toggleItalicForSelection(self):
         return self.toggleStylePropertyForSelection("italic")
+
+    def toggleUnderlineForSelection(self):
+        return self.toggleStylePropertyForSelection("underline")
 
     def applyCenterAlignmentFromMenu(self):
         alignment = "center" if self.center_menu_var.get() else "left"
@@ -4962,6 +4980,11 @@ class RTFWindow:
             style["italic"] = italic_match.group(1) != "0"
             return style
 
+        underline_match = re.fullmatch(r'ul(0|none)?', command)
+        if underline_match:
+            style["underline"] = underline_match.group(1) not in {"0", "none"}
+            return style
+
         color_match = re.fullmatch(r'cf(\d+)', command)
         if color_match:
             style["color"] = self.color_table.get(
@@ -5336,6 +5359,9 @@ class RTFWindow:
 
         if style["italic"]:
             commands.append(r'\i')
+
+        if style["underline"]:
+            commands.append(r'\ul')
 
         if style["alignment"] == "center":
             commands.append(r'\qc')

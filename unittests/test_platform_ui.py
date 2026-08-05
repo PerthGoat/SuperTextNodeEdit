@@ -134,6 +134,7 @@ class TestPlatformUIHelpers(unittest.TestCase):
         window.format_painter_menu_var = object()
         window.bold_menu_var = object()
         window.italic_menu_var = object()
+        window.underline_menu_var = object()
         window.center_menu_var = object()
 
         with (

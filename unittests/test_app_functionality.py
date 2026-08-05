@@ -1602,13 +1602,14 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.applyStylePropertyToSelection("color", "#ff0000")
         self.window.toggleBoldForSelection()
         self.window.toggleItalicForSelection()
+        self.window.toggleUnderlineForSelection()
 
         rtf = self.window.convertToRTF("1.0", "end")
 
         self.assertIn(r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}", rtf)
         self.assertIn(r"{\colortbl ;\red255\green0\blue0;}", rtf)
         self.assertIn(r"Hello ", rtf)
-        self.assertIn(r"{\f1\fs36\cf1\b\i World}", rtf)
+        self.assertIn(r"{\f1\fs36\cf1\b\i\ul World}", rtf)
 
     def test_hyperlink_round_trips_target_and_visible_text(self):
         self.window.text.insert("1.0", "Read the docs")
@@ -2003,6 +2004,19 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(style["bold"])
         self.assertTrue(self.window.bold_menu_var.get())
 
+    def test_underline_without_selection_sets_style_for_typed_text(self):
+        self.window.toggleUnderlineForSelection()
+        self.window.insertTypedText("Underlined")
+
+        style = self.window.getTextStyleAt("1.0")
+        self.assertTrue(style["underline"])
+        self.assertTrue(self.window.underline_menu_var.get())
+        style_tag = next(
+            tag for tag in self.window.text.tag_names("1.0")
+            if tag.startswith(self.window.FORMAT_TAG_PREFIX)
+        )
+        self.assertEqual("1", self.window.text.tag_cget(style_tag, "underline"))
+
     def test_format_painter_copies_complete_cursor_style_to_next_selection(self):
         self.window.text.insert("1.0", "Source plain target")
         source_style = {
@@ -2011,6 +2025,7 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             "color": "#ff0000",
             "bold": True,
             "italic": True,
+            "underline": True,
             "alignment": "center",
         }
         self.window.applyStyleToRange("1.0", "1.6", source_style)
@@ -2078,7 +2093,7 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             r"{\rtf1\ansi\pard "
             r"{\fonttbl{\f0\fswiss Consolas;}{\f1\fswiss Arial;}}"
             r"{\colortbl ;\red255\green0\blue0;}"
-            r"\f0\fs24 Plain {\f1\fs32\cf1\b\i Fancy}}"
+            r"\f0\fs24 Plain {\f1\fs32\cf1\b\i\ul Fancy}}"
         )
 
         parsed = app.RTFParser(rtf_text).parseme()
@@ -2093,6 +2108,19 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual("#ff0000", fancy_style["color"])
         self.assertTrue(fancy_style["bold"])
         self.assertTrue(fancy_style["italic"])
+        self.assertTrue(fancy_style["underline"])
+
+    def test_display_nested_rtf_structure_honors_underline_off(self):
+        rtf_text = (
+            r"{\rtf1\ansi\pard "
+            r"{\fonttbl{\f0\fswiss Consolas;}}\f0 "
+            r"\ul Underlined\ul0 Plain}"
+        )
+
+        self.window.displayNestedRTFStructure(app.RTFParser(rtf_text).parseme())
+
+        self.assertTrue(self.window.getTextStyleAt("1.0")["underline"])
+        self.assertFalse(self.window.getTextStyleAt("1.11")["underline"])
 
     def test_display_nested_rtf_structure_only_decodes_actual_picture_group(self):
         rtf_text = (

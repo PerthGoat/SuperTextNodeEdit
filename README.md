@@ -87,10 +87,14 @@ note is saved and reopened.
 
 ## Format painter
 
+Choose **Format → Underline** or press **Ctrl+U** (**Command+U** on macOS) to
+toggle underlining for selected text, or for text typed at the cursor.
+
 Place the text cursor in formatted text and choose **Format → Format Painter**
-or press **Ctrl+Shift+C** (**Command+Shift+C** on macOS). The next text you highlight receives the same font,
-size, color, bold, italic, and alignment styling. The painter applies once and
-then switches off; press **Escape** to cancel it without applying.
+or press **Ctrl+Shift+C** (**Command+Shift+C** on macOS). The next text you
+highlight receives the same font, size, color, bold, italic, underline, and
+alignment styling. The painter applies once and then switches off; press
+**Escape** to cancel it without applying.
 
 Tables can be copied in interoperable formats by right-clicking anywhere in a
 table and choosing **Copy Table as TSV** or **Copy Table as HTML**. Header
