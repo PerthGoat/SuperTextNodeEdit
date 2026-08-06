@@ -1046,6 +1046,11 @@ class RTFWindow:
         self.menus['file'] = file_menu
         file_menu.add_command(label='Save', accelerator=f'{primary}+S', command=self.saveRTF)
         file_menu.add_command(label='Save All', accelerator=f'{primary}+Shift+S', command=self.saveAllTabs)
+        file_menu.add_command(
+            label='Reload from Disk',
+            accelerator=f'{primary}+R',
+            command=self.reloadCurrentDocument,
+        )
         file_menu.add_command(label='Close Tab', accelerator=f'{primary}+W', command=self.closeCurrentTab)
         file_menu.add_separator()
         file_menu.add_command(
@@ -1199,6 +1204,7 @@ class RTFWindow:
         self.window.bind('<Map>', self.restoreMenuBar, add='+')
         self.bindShortcut(self.window, 's', self.saveRTFShortcut)
         self.bindShortcut(self.window, 's', self.saveAllTabs, shift=True)
+        self.bindShortcut(self.window, 'r', self.reloadCurrentDocument)
         self.bindShortcut(self.window, 'w', self.closeCurrentTab)
         self.bindShortcut(self.window, 'f', self.showSearchDialog, shift=True)
         if self.is_macos:
@@ -5688,6 +5694,63 @@ class RTFWindow:
 
     def saveRTF(self):
         return self.writeCurrentDocument(show_confirmation=True)
+
+    def reloadCurrentDocument(self, event=None):
+        """Replace every open copy of the active node with its saved contents."""
+        document = self.active_document
+        if document is None or not document.path:
+            messagebox.showerror(
+                'No open node to reload',
+                'No open node to reload',
+            )
+            return 'break'
+
+        self.captureActiveDocumentState()
+        normalized_path = self.normalizedDocumentPath(document.path)
+        copies = [
+            candidate
+            for candidate in self.open_documents_by_tab.values()
+            if self.normalizedDocumentPath(candidate.path) == normalized_path
+        ]
+        has_unsaved_changes = any(
+            candidate.dirty or bool(candidate.text.edit_modified())
+            for candidate in copies
+        )
+        if has_unsaved_changes and not messagebox.askyesno(
+            'Discard changes?',
+            f'Discard unsaved changes to {self.documentTabTitle(document).lstrip("* ")} '
+            'and reload it from disk?',
+        ):
+            return 'break'
+
+        try:
+            try:
+                with open(document.path, 'r', encoding='utf-8') as fi:
+                    data = fi.read()
+            except UnicodeDecodeError:
+                with open(document.path, 'r') as fi:
+                    data = fi.read()
+            rt = RTFParser(data).parseme()
+        except (OSError, RTFParseError) as exc:
+            messagebox.showerror(
+                'Error Reloading Node',
+                f'Could not reload node file: {exc}',
+            )
+            return 'break'
+
+        if not self.isSupportedRTF(rt):
+            messagebox.showerror(
+                'Error Reloading Node',
+                'Unsupported RTF header',
+            )
+            return 'break'
+
+        content_hash = self.documentContentHash(data)
+        for copy in copies:
+            self.replaceDocumentContent(copy, rt, content_hash, dirty=False)
+        self.activateDocument(document, synchronize_current=False)
+        document.text.focus_set()
+        return 'break'
 
     def saveAllTabs(self, event=None):
         original_document = self.active_document

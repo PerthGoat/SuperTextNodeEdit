@@ -133,6 +133,10 @@ macOS) to close the current tab and save all modified tabs. Tabs can also be
 closed from their right-click menu (or with the middle mouse button on
 Windows/Linux). A leading `*` on a tab means that it has unsaved changes.
 
+Use **File → Reload from Disk** or press **Ctrl+R** (**Command+R** on macOS)
+to discard unsaved changes to the current note and read its saved contents
+again. SuperText asks for confirmation when the note has unsaved changes.
+
 ## What is required to run this?
 You can run this as long as you have Python 3 with Tk and Pillow. Pillow is used because it makes it very easy to convert images to the TK format, grab the clipboard, and ensure that the images in the document are
 consitent in their formatting. I like them to all be PNG because I like PNG.

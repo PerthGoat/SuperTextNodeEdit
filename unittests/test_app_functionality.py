@@ -438,6 +438,65 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.window.selectDocumentTab(beta_document)
         self.assertEqual("Beta text changed", self.window.text.get("1.0", "end-1c"))
 
+    def test_reload_from_disk_discards_edits_in_every_open_copy(self):
+        note_file = self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        preview_document = self.window.active_document
+        alpha = self.window.find_self("alpha")
+        event = SimpleNamespace(x=10, y=20)
+        with mock.patch.object(self.window.tree, "identify", return_value=alpha):
+            self.window.openNodeFromTreeDoubleClick(event)
+        dedicated_document = self.window.active_document
+        self.window.text.insert("end-1c", " changed")
+        note_file.write_text(
+            self.window.RTF_HEADER + "Externally updated}",
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(app.messagebox, "askyesno", return_value=True) as confirm:
+            result = self.window.reloadCurrentDocument()
+
+        self.assertEqual("break", result)
+        confirm.assert_called_once()
+        self.assertIs(dedicated_document, self.window.active_document)
+        for document in (preview_document, dedicated_document):
+            self.assertEqual(
+                "Externally updated",
+                document.text.get("1.0", "end-1c"),
+            )
+            self.assertFalse(document.dirty)
+            self.assertFalse(document.text.edit_modified())
+            self.assertFalse(
+                self.window.editor_tabs.tab(document.tab_id, "text").startswith("* ")
+            )
+
+        self.window.undoDocument()
+        self.assertEqual("Externally updated", self.window.text.get("1.0", "end-1c"))
+
+    def test_canceling_reload_preserves_unsaved_edits(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.tryReadShowRTF(None)
+        self.window.text.insert("end-1c", " changed")
+
+        with mock.patch.object(app.messagebox, "askyesno", return_value=False):
+            result = self.window.reloadCurrentDocument()
+
+        self.assertEqual("break", result)
+        self.assertEqual("Alpha text changed", self.window.text.get("1.0", "end-1c"))
+        self.assertTrue(self.window.active_document.dirty)
+
+    def test_file_menu_includes_reload_from_disk(self):
+        file_menu = self.window.menus["file"]
+        labels = [
+            file_menu.entrycget(index, "label")
+            for index in range(file_menu.index("end") + 1)
+            if file_menu.type(index) == "command"
+        ]
+
+        self.assertIn("Reload from Disk", labels)
+
     def test_text_wrapping_is_configured_per_document(self):
         first_document = self.window.active_document
 
