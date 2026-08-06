@@ -497,6 +497,15 @@ class TestRTFWindowFunctionality(unittest.TestCase):
 
         self.assertIn("Reload from Disk", labels)
 
+    def test_tab_context_menu_includes_reload_from_disk(self):
+        labels = [
+            self.window.tab_context_menu.entrycget(index, "label")
+            for index in range(self.window.tab_context_menu.index("end") + 1)
+            if self.window.tab_context_menu.type(index) == "command"
+        ]
+
+        self.assertIn("Reload from Disk", labels)
+
     def test_text_wrapping_is_configured_per_document(self):
         first_document = self.window.active_document
 

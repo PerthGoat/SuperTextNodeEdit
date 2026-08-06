@@ -363,6 +363,11 @@ class RTFWindow:
         self.bindContextMenu(self.editor_tabs, self.showTabContextMenu)
 
         self.tab_context_menu = tk.Menu(self.window, tearoff=False)
+        self.tab_context_menu.add_command(
+            label='Reload from Disk',
+            command=self.reloadCurrentDocument,
+        )
+        self.tab_context_menu.add_separator()
         self.tab_context_menu.add_command(label='Close Tab', command=self.closeCurrentTab)
         self.tab_context_menu.add_command(label='Close Other Tabs', command=self.closeOtherTabs)
 

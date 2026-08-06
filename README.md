@@ -135,7 +135,8 @@ Windows/Linux). A leading `*` on a tab means that it has unsaved changes.
 
 Use **File → Reload from Disk** or press **Ctrl+R** (**Command+R** on macOS)
 to discard unsaved changes to the current note and read its saved contents
-again. SuperText asks for confirmation when the note has unsaved changes.
+again. The same command is available by right-clicking a tab. SuperText asks
+for confirmation when the note has unsaved changes.
 
 ## What is required to run this?
 You can run this as long as you have Python 3 with Tk and Pillow. Pillow is used because it makes it very easy to convert images to the TK format, grab the clipboard, and ensure that the images in the document are
