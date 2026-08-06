@@ -510,6 +510,15 @@ class TestRTFWindowFunctionality(unittest.TestCase):
     def test_search_result_opens_a_deep_lazily_loaded_node(self):
         self.write_node("alpha", "Alpha text")
         self.write_node(Path("alpha") / "beta", "Deep result text")
+        self.write_node(
+            Path("alpha") / "beta" / "gamma",
+            "Child of search result",
+        )
+        self.write_node(Path("alpha") / "delta", "Search result sibling")
+        self.write_node(
+            Path("alpha") / "delta" / "epsilon",
+            "Child of search result sibling",
+        )
         self.window.populateNodeTree()
 
         selected = self.window.selectNodePath(os.path.join("alpha", "beta"))
@@ -526,6 +535,23 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(
             "Deep result text",
             self.window.text.get("1.0", "end-1c"),
+        )
+        self.assertFalse(self.window.tree.item(selected, "open"))
+        self.assertEqual(
+            ["gamma"],
+            [
+                self.window.tree.item(child)["text"]
+                for child in self.window.tree.get_children(selected)
+            ],
+        )
+        sibling = self.window.find_self(os.path.join("alpha", "delta"))
+        self.assertFalse(self.window.tree.item(sibling, "open"))
+        self.assertEqual(
+            ["epsilon"],
+            [
+                self.window.tree.item(child)["text"]
+                for child in self.window.tree.get_children(sibling)
+            ],
         )
 
     def test_undo_and_redo_document_edits(self):

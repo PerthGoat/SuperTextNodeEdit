@@ -1718,7 +1718,23 @@ class RTFWindow:
             parent = children[segment]
             accumulated.append(segment)
             if segment != segments[-1]:
+                # Loading the whole ancestor branch gives every node at the
+                # next level its child placeholders, not only the node on the
+                # selected path.  Their disclosure arrows are then available
+                # after navigating directly to a search result.
+                self.populateNodeTree(
+                    self.resolveNodePath(os.path.join(*accumulated)),
+                    parent,
+                )
                 self.tree.item(parent, open=True)
+
+        # The levels used to locate the note are lazy-loaded above, but the
+        # selected note may still only be a placeholder in its parent.  Load
+        # its immediate branch as well so opening a search result gives the
+        # note a disclosure arrow without expanding it automatically.
+        child_names = self.noteNamesOnDisk(normalized_path)
+        if child_names and not self.tree.get_children(parent):
+            self.populateNodeTree(self.resolveNodePath(normalized_path), parent)
 
         self.tree.selection_set(parent)
         self.tree.focus(parent)
