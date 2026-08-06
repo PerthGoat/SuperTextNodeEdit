@@ -887,6 +887,42 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue((self.node_dir / "beta" / "alpha.rtf").is_file())
         self.assertEqual(os.path.join("beta", "alpha"), self.window.get_node_path(self.window.selected_node))
 
+    def test_make_root_node_moves_selected_subtree_to_top_level(self):
+        self.write_node("parent", "Parent text")
+        self.write_node(Path("parent") / "child", "Child text")
+        grandchild_file = self.write_node(
+            Path("parent") / "child" / "grandchild",
+            "Grandchild text",
+        )
+        expected_grandchild = grandchild_file.read_bytes()
+        self.window.populateNodeTree()
+        parent = self.window.find_self("parent")
+        self.window.populateNodeTree(str(self.node_dir / "parent") + os.sep, parent)
+        child = self.window.find_self(os.path.join("parent", "child"))
+        self.window.selected_node = child
+
+        result = self.window.makeSelectedNodeRoot()
+
+        self.assertEqual("break", result)
+        self.assertFalse((self.node_dir / "parent" / "child").exists())
+        self.assertFalse((self.node_dir / "parent" / "child.rtf").exists())
+        self.assertTrue((self.node_dir / "child").is_dir())
+        self.assertTrue((self.node_dir / "child.rtf").is_file())
+        moved_grandchild = self.node_dir / "child" / "grandchild.rtf"
+        self.assertEqual(expected_grandchild, moved_grandchild.read_bytes())
+        self.assertEqual("child", self.window.get_node_path(self.window.selected_node))
+
+    def test_make_root_node_does_nothing_when_node_is_already_top_level(self):
+        self.write_node("alpha", "Alpha text")
+        self.window.populateNodeTree()
+        self.window.selected_node = self.window.find_self("alpha")
+
+        with mock.patch.object(self.window, "renameFileAndDir") as rename:
+            result = self.window.makeSelectedNodeRoot()
+
+        self.assertEqual("break", result)
+        rename.assert_not_called()
+
     def test_escape_or_right_click_cancels_pending_move(self):
         self.write_node("alpha", "Alpha text")
         self.window.populateNodeTree()

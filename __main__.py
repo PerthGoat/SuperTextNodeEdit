@@ -309,6 +309,7 @@ class RTFWindow:
         self.node_context_menu.add_command(label='Rename', command=self.renameNode)
         self.node_context_menu.add_command(label='Duplicate', command=self.duplicateNode)
         self.node_context_menu.add_command(label='Move', command=self.beginMoveNode)
+        self.node_context_menu.add_command(label='Make Root Node', command=self.makeSelectedNodeRoot)
         self.node_context_menu.add_command(label='Move Up', command=self.moveSelectedNodeUp)
         self.node_context_menu.add_command(label='Move Down', command=self.moveSelectedNodeDown)
         self.node_context_menu.add_command(label='Add Child', command=self.createNewNode)
@@ -1085,6 +1086,7 @@ class RTFWindow:
         node_menu.add_command(label='Add Child', command=self.createNewNode)
         node_menu.add_command(label='Rename', command=self.renameNode)
         node_menu.add_command(label='Move', command=self.beginMoveNode)
+        node_menu.add_command(label='Make Root Node', command=self.makeSelectedNodeRoot)
         node_menu.add_command(
             label='Move Up',
             accelerator=f'{alternate}+Up',
@@ -6008,6 +6010,21 @@ class RTFWindow:
         self.cancelInlineRename()
         self.move_source_node = node
         self.tree.widget.configure(cursor='crosshair')
+        return 'break'
+
+    def makeSelectedNodeRoot(self):
+        """Move the selected node and its subtree to the top level."""
+        node = self.selected_node
+        if not node:
+            return None
+        if not self.get_node_parent(node):
+            return 'break'
+
+        self.cancelMoveNode()
+        self.cancelInlineRename()
+        old_path = self.get_node_path(node)
+        new_path = self.tree.item(node)['text']
+        self.renameFileAndDir(node, old_path, new_path)
         return 'break'
 
     def cancelMoveNode(self):

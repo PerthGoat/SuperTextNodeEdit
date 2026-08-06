@@ -37,6 +37,9 @@ Right-click menus also support the standard macOS **Control-click** gesture.
 Use **Nodes → Add Root Node** to create a note at the top level of the node
 tree, even when another note is selected. Use **Nodes → Add Child** or
 right-click a note and choose **Add Child** to create a note beneath it.
+To move an existing note and all of its children to the top level, select it
+and use **Nodes → Make Root Node**, or choose **Make Root Node** from its
+right-click menu.
 
 ## Ordering notes
 
