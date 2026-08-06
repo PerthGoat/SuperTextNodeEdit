@@ -1473,6 +1473,12 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             self.window.text.get("1.0", "end"),
         )
         self.assertEqual((1, 4), self.window.tableRangeAtIndex("3.2"))
+        self.assertIn(bold_tag, self.window.text.tag_names("1.2"))
+        self.assertIn(bold_tag, self.window.text.tag_names("1.5"))
+        self.assertIn(bold_tag, self.window.text.tag_names("1.9"))
+        self.assertIn(bold_tag, self.window.text.tag_names("1.13"))
+        self.assertNotIn(bold_tag, self.window.text.tag_names("1.0"))
+        self.assertNotIn(bold_tag, self.window.text.tag_names("2.2"))
         self.assertIn(bold_tag, self.window.text.tag_names("3.2"))
         self.assertIn(bold_tag, self.window.text.tag_names("3.6"))
         self.assertNotIn(bold_tag, self.window.text.tag_names("3.7"))

@@ -3857,6 +3857,32 @@ class RTFWindow:
         self.text.focus_set()
         return self.context_table_range
 
+    def boldTableHeaderCells(self, table_range):
+        """Bold cell contents when a table has a header separator row."""
+        start_line, finish_line = table_range
+        if (
+            finish_line <= start_line
+            or not self.isTableSeparatorCells(
+                self.tableRowCells(start_line + 1)
+            )
+        ):
+            return None
+
+        header_line = self.text.get(
+            f'{start_line}.0',
+            f'{start_line}.end',
+        )
+        for start, finish in self.tableCellSpansFromText(header_line):
+            if start == finish:
+                continue
+            self.applyStylePropertyToRange(
+                f'{start_line}.{start}',
+                f'{start_line}.{finish}',
+                'bold',
+                True,
+            )
+        return None
+
     def reformatTable(self, event=None):
         """Restore missing delimiters and align every row to one column count."""
         table_range = self.currentTableRangeForCopy()
@@ -3865,6 +3891,8 @@ class RTFWindow:
 
         rows = self.normalizedTableRows(table_range)
         updated_range = self.replaceTableRange(table_range, rows)
+        self.boldTableHeaderCells(updated_range)
+        self.refreshTableLayout()
         target_line = min(
             getattr(self, 'context_table_line', table_range[0]),
             updated_range[1],
