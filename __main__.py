@@ -2523,7 +2523,15 @@ class RTFWindow:
 
     def updateToolbarStyleFromSelection(self):
         style = self.getTextStyleAt(self.getToolbarStyleIndex())
-        self.typing_style = style.copy()
+
+        # A selection describes text that already exists; inspecting or
+        # formatting it must not change the style used for subsequently typed
+        # text.  Otherwise, for example, underlining a selected bold word also
+        # leaves underline enabled when the user later starts another bold
+        # word.  Cursor movement (with no selection) still adopts the nearby
+        # style as the insertion style.
+        if not self.text.tag_ranges('sel'):
+            self.typing_style = style.copy()
 
         self.setToolbarStyleVars(style)
 

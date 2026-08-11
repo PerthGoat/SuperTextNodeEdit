@@ -2151,7 +2151,27 @@ class TestRTFWindowFunctionality(unittest.TestCase):
             tag for tag in self.window.text.tag_names("1.0")
             if tag.startswith(self.window.FORMAT_TAG_PREFIX)
         )
-        self.assertEqual("1", self.window.text.tag_cget(style_tag, "underline"))
+        self.assertEqual(1, int(self.window.text.tag_cget(style_tag, "underline")))
+
+    def test_underlining_selected_bold_text_does_not_leak_into_future_bold_text(self):
+        self.window.text.insert("1.0", "Existing ")
+        self.window.applyStylePropertyToRange("1.0", "1.8", "bold", True)
+        self.window.text.tag_add("sel", "1.0", "1.8")
+
+        self.window.toggleUnderlineForSelection()
+
+        self.assertTrue(self.window.getTextStyleAt("1.0")["bold"])
+        self.assertTrue(self.window.getTextStyleAt("1.0")["underline"])
+        self.assertEqual(self.window.defaultTextStyle(), self.window.typing_style)
+
+        self.window.text.tag_remove("sel", "1.0", "end")
+        self.window.text.mark_set("insert", "end-1c")
+        self.window.toggleBoldForSelection()
+        self.window.insertTypedText("Future")
+
+        future_style = self.window.getTextStyleAt("1.9")
+        self.assertTrue(future_style["bold"])
+        self.assertFalse(future_style["underline"])
 
     def test_format_painter_copies_complete_cursor_style_to_next_selection(self):
         self.window.text.insert("1.0", "Source plain target")
