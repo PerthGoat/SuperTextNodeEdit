@@ -2173,6 +2173,86 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertTrue(future_style["bold"])
         self.assertFalse(future_style["underline"])
 
+    def test_undo_and_redo_restore_selected_text_formatting(self):
+        self.window.text.insert("1.0", "Mixed styles")
+        self.window.applyStylePropertyToRange("1.0", "1.5", "italic", True)
+        self.window.text.tag_add("sel", "1.0", "1.12")
+
+        self.window.toggleBoldForSelection()
+        self.assertTrue(self.window.getTextStyleAt("1.1")["bold"])
+        self.assertTrue(self.window.getTextStyleAt("1.1")["italic"])
+        self.assertTrue(self.window.getTextStyleAt("1.8")["bold"])
+
+        self.window.undoDocument()
+        self.assertFalse(self.window.getTextStyleAt("1.1")["bold"])
+        self.assertTrue(self.window.getTextStyleAt("1.1")["italic"])
+        self.assertFalse(self.window.getTextStyleAt("1.8")["bold"])
+
+        self.window.redoDocument()
+        self.assertTrue(self.window.getTextStyleAt("1.1")["bold"])
+        self.assertTrue(self.window.getTextStyleAt("1.1")["italic"])
+        self.assertTrue(self.window.getTextStyleAt("1.8")["bold"])
+
+    def test_undo_orders_text_edits_after_formatting_before_formatting(self):
+        self.window.text.insert("1.0", "word")
+        self.window.text.edit_reset()
+        self.window.applyStylePropertyToRange("1.0", "1.4", "underline", True)
+        self.window.text.insert("end-1c", " later")
+
+        self.window.undoDocument()
+        self.assertEqual("word", self.window.text.get("1.0", "end-1c"))
+        self.assertTrue(self.window.getTextStyleAt("1.0")["underline"])
+
+        self.window.undoDocument()
+        self.assertFalse(self.window.getTextStyleAt("1.0")["underline"])
+
+        self.window.redoDocument()
+        self.assertTrue(self.window.getTextStyleAt("1.0")["underline"])
+
+        self.window.redoDocument()
+        self.assertEqual("word later", self.window.text.get("1.0", "end-1c"))
+
+    def test_formatting_undo_history_is_kept_per_tab(self):
+        first_document = self.window.active_document
+        self.window.text.insert("1.0", "first")
+        self.window.applyStylePropertyToRange("1.0", "1.5", "bold", True)
+        second_document = self.window.createDocumentTab("second.rtf", "second")
+        self.window.selectDocumentTab(second_document)
+        self.window.text.insert("1.0", "second")
+        self.window.applyStylePropertyToRange("1.0", "1.6", "italic", True)
+
+        self.window.undoDocument()
+        self.assertFalse(self.window.getTextStyleAt("1.0")["italic"])
+        self.window.selectDocumentTab(first_document)
+        self.assertTrue(self.window.getTextStyleAt("1.0")["bold"])
+
+        self.window.undoDocument()
+        self.assertFalse(self.window.getTextStyleAt("1.0")["bold"])
+
+    def test_formatting_undo_after_save_marks_document_dirty(self):
+        document = self.window.active_document
+        document.path = str(self.node_dir / "saved.rtf")
+        document.relative_path = "saved"
+        self.window.openFile = document.path
+        self.window.text.insert("1.0", "saved text")
+        self.window.text.edit_reset()
+        self.window.text.edit_modified(False)
+        document.content_hash = self.window.documentContentHash(
+            self.window.convertToRTF("1.0", "end")
+        )
+        self.window.applyStylePropertyToRange("1.0", "1.10", "bold", True)
+
+        self.assertTrue(self.window.writeCurrentDocument(show_confirmation=False))
+        self.assertFalse(document.dirty)
+
+        self.window.undoDocument()
+        self.assertFalse(self.window.getTextStyleAt("1.0")["bold"])
+        self.assertTrue(document.dirty)
+
+        self.window.redoDocument()
+        self.assertTrue(self.window.getTextStyleAt("1.0")["bold"])
+        self.assertFalse(document.dirty)
+
     def test_format_painter_copies_complete_cursor_style_to_next_selection(self):
         self.window.text.insert("1.0", "Source plain target")
         source_style = {

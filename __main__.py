@@ -96,6 +96,17 @@ class PrioritizedItem:
     descr: str=field(compare=False)
 
 @dataclass
+class FormattingHistoryEntry:
+    """The styles changed by one user-visible formatting command."""
+    start: str
+    finish: str
+    before: list
+    after: list
+    text: str
+    modified_before: bool
+    modified_after: bool
+
+@dataclass
 class OpenDocument:
     """Editor and document-specific state for one open tab."""
     tab_id: str
@@ -128,6 +139,8 @@ class OpenDocument:
     dirty: bool = False
     loading: bool = False
     content_hash: str = ''
+    formatting_undo_stack: list = field(default_factory=list)
+    formatting_redo_stack: list = field(default_factory=list)
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -632,6 +645,8 @@ class RTFWindow:
         document.hyperlink_tags = {}
         document.hyperlink_tag_counter = 0
         document.typing_style = self.defaultTextStyle()
+        document.formatting_undo_stack.clear()
+        document.formatting_redo_stack.clear()
         document.current_text_cursor = self.TEXT_CURSOR
         document.image_resize_state = None
         self.activateDocument(
@@ -1773,10 +1788,24 @@ class RTFWindow:
 
     def undoDocument(self, event=None):
         """Undo the most recent edit in the current document."""
-        try:
-            self.text.edit_undo()
-        except tk.TclError:
-            pass
+        document = self.active_document
+        formatting_entry = (
+            document.formatting_undo_stack[-1]
+            if document is not None and document.formatting_undo_stack
+            else None
+        )
+        if (
+            formatting_entry is not None
+            and self.formattingHistoryText() == formatting_entry.text
+        ):
+            document.formatting_undo_stack.pop()
+            self.restoreFormattingHistoryEntry(formatting_entry, redo=False)
+            document.formatting_redo_stack.append(formatting_entry)
+        else:
+            try:
+                self.text.edit_undo()
+            except tk.TclError:
+                pass
         self.scheduleToolbarStyleUpdate()
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
@@ -1785,10 +1814,27 @@ class RTFWindow:
 
     def redoDocument(self, event=None):
         """Redo the most recently undone edit in the current document."""
-        try:
-            self.text.edit_redo()
-        except tk.TclError:
-            pass
+        document = self.active_document
+        formatting_entry = (
+            document.formatting_redo_stack[-1]
+            if document is not None and document.formatting_redo_stack
+            else None
+        )
+        if (
+            formatting_entry is not None
+            and self.formattingHistoryText() == formatting_entry.text
+        ):
+            document.formatting_redo_stack.pop()
+            self.restoreFormattingHistoryEntry(formatting_entry, redo=True)
+            document.formatting_undo_stack.append(formatting_entry)
+        else:
+            try:
+                self.text.edit_redo()
+            except tk.TclError:
+                # A new text edit invalidates Tk's redo branch.  Its matching
+                # formatting branch must not remain available either.
+                if document is not None:
+                    document.formatting_redo_stack.clear()
         self.scheduleToolbarStyleUpdate()
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
@@ -2595,6 +2641,99 @@ class RTFWindow:
         for tag in list(self.style_tags):
             self.text.tag_remove(tag, start, finish)
 
+    def formattingHistoryText(self):
+        """Return the text used to order formatting and native undo entries."""
+        return self.text.get('1.0', 'end-1c')
+
+    def captureStyleRuns(self, start, finish):
+        """Capture complete styles in a range as compact, index-based runs."""
+        start = self.text.index(start)
+        finish = self.text.index(finish)
+        runs = []
+        current = start
+        run_start = start
+        run_style = None
+        run_key = None
+        while self.text.compare(current, '<', finish):
+            style = self.getTextStyleAt(current)
+            key = self._style_key(style)
+            if run_style is None:
+                run_style = style.copy()
+                run_key = key
+                run_start = current
+            elif key != run_key:
+                runs.append((run_start, current, run_style))
+                run_start = current
+                run_style = style.copy()
+                run_key = key
+            current = self.text.index(f'{current}+1c')
+
+        if run_style is not None:
+            runs.append((run_start, finish, run_style))
+        return runs
+
+    def styleRunsEqual(self, first, second):
+        if len(first) != len(second):
+            return False
+        return all(
+            start_a == start_b
+            and finish_a == finish_b
+            and self._style_key(style_a) == self._style_key(style_b)
+            for (start_a, finish_a, style_a), (start_b, finish_b, style_b)
+            in zip(first, second)
+        )
+
+    def recordFormattingHistory(self, start, finish, before, modified_before):
+        """Add a completed tag-only change to the active tab's undo history."""
+        document = self.active_document
+        if document is None or document.loading:
+            return None
+
+        after = self.captureStyleRuns(start, finish)
+        if self.styleRunsEqual(before, after):
+            return None
+
+        document.formatting_undo_stack.append(FormattingHistoryEntry(
+            start=self.text.index(start),
+            finish=self.text.index(finish),
+            before=before,
+            after=after,
+            text=self.formattingHistoryText(),
+            modified_before=modified_before,
+            modified_after=bool(self.text.edit_modified()),
+        ))
+        document.formatting_redo_stack.clear()
+        return None
+
+    def restoreStyleRuns(self, start, finish, runs):
+        self.removeStyleTags(start, finish)
+        for run_start, run_finish, style in runs:
+            tag = self.getStyleTag(style)
+            if tag is not None:
+                self.text.tag_add(tag, run_start, run_finish)
+
+    def restoreFormattingHistoryEntry(self, entry, redo):
+        """Replay one formatting entry without creating another history item."""
+        self.restoreStyleRuns(
+            entry.start,
+            entry.finish,
+            entry.after if redo else entry.before,
+        )
+        modified = entry.modified_after if redo else entry.modified_before
+        document = self.active_document
+        if document is not None and document.path and document.content_hash:
+            current_hash = self.documentContentHash(
+                self.convertToRTF('1.0', 'end')
+            )
+            modified = current_hash != document.content_hash
+        self.text.edit_modified(modified)
+        if document is not None:
+            document.dirty = bool(modified and document.path)
+            self.updateDocumentTabTitle(document)
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        return None
+
     def selectedTextRange(self, show_error=True):
         if not self.text.tag_ranges('sel'):
             if show_error:
@@ -2603,7 +2742,18 @@ class RTFWindow:
 
         return self.text.index('sel.first'), self.text.index('sel.last')
 
-    def applyStylePropertyToRange(self, start, finish, property_name, value):
+    def applyStylePropertyToRange(
+        self,
+        start,
+        finish,
+        property_name,
+        value,
+        record_history=True,
+    ):
+        start = self.text.index(start)
+        finish = self.text.index(finish)
+        modified_before = bool(self.text.edit_modified())
+        before = self.captureStyleRuns(start, finish) if record_history else None
         current = start
         while self.text.compare(current, '<', finish):
             next_index = self.text.index(f'{current}+1c')
@@ -2616,6 +2766,8 @@ class RTFWindow:
             current = next_index
 
         self.markCurrentDocumentModified()
+        if record_history:
+            self.recordFormattingHistory(start, finish, before, modified_before)
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
         return 'break'
@@ -2639,6 +2791,10 @@ class RTFWindow:
         if not self.text.compare(start, '<', finish):
             return None
 
+        start = self.text.index(start)
+        finish = self.text.index(finish)
+        modified_before = bool(self.text.edit_modified())
+        before = self.captureStyleRuns(start, finish)
         normalized_style = {**self.defaultTextStyle(), **style}
         normalized_style["color"] = self.normalizeColor(normalized_style["color"])
         normalized_style["alignment"] = self.normalizeAlignment(
@@ -2650,6 +2806,7 @@ class RTFWindow:
             self.text.tag_add(tag, start, finish)
 
         self.markCurrentDocumentModified()
+        self.recordFormattingHistory(start, finish, before, modified_before)
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
         return 'break'
@@ -2842,6 +2999,10 @@ class RTFWindow:
 
         start, finish = selected_range
         line_ranges = self.selectionLineRanges(start, finish)
+        history_start = line_ranges[0][0]
+        history_finish = line_ranges[-1][1]
+        modified_before = bool(self.text.edit_modified())
+        before = self.captureStyleRuns(history_start, history_finish)
         new_alignment = requested_alignment
         if new_alignment is None:
             new_alignment = (
@@ -2857,7 +3018,14 @@ class RTFWindow:
                     line_end,
                     "alignment",
                     new_alignment,
+                    record_history=False,
                 )
+        self.recordFormattingHistory(
+            history_start,
+            history_finish,
+            before,
+            modified_before,
+        )
         self.updateToolbarStyleFromSelection()
         self.scheduleCenteredTextLayoutRefresh()
         return result
@@ -3897,6 +4065,7 @@ class RTFWindow:
                 f'{start_line}.{finish}',
                 'bold',
                 True,
+                record_history=False,
             )
         return None
 
@@ -5323,6 +5492,8 @@ class RTFWindow:
         document.hyperlink_tags = {}
         document.hyperlink_tag_counter = 0
         document.typing_style = self.defaultTextStyle()
+        document.formatting_undo_stack.clear()
+        document.formatting_redo_stack.clear()
         document.current_text_cursor = self.TEXT_CURSOR
         document.image_resize_state = None
         self.activateDocument(document)
@@ -5729,6 +5900,7 @@ class RTFWindow:
 
         if self.active_document is not None:
             self.active_document.path = self.openFile
+            self.active_document.content_hash = self.documentContentHash(data)
             self.active_document.dirty = False
             self.text.edit_modified(False)
             self.captureActiveDocumentState()
