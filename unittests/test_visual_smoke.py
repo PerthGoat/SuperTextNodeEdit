@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import tkinter as tk
+from tkinter import ttk
 import unittest
 from unittest import mock
 
@@ -104,6 +105,11 @@ class TestVisualSmoke(unittest.TestCase):
                 self.assertGreaterEqual(window.window.winfo_height(), 650)
                 self.assertEqual(window.tree.column("#0")["anchor"], "w")
                 self.assertEqual(window.tree.heading("#0")["text"], "Nodes")
+                tree_style = ttk.Style(window.window)
+                self.assertGreaterEqual(
+                    int(tree_style.lookup("Treeview", "rowheight")),
+                    window.tkinter_font.metrics("linespace") + 4,
+                )
                 self.assertEqual(window.text.index("end"), "2.0")
             finally:
                 window.window.destroy()

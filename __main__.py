@@ -294,7 +294,16 @@ class RTFWindow:
 
         # browse is used because multiselect is hard, and this works fine for a tree-based text editor
         
-        ttk.Style().configure('Treeview', font=self.tkinter_font) # set the font of the treeview to a known font, for horisontal scroll adjust
+        # Treeview themes use a fixed default row height that can be shorter
+        # than our configured font, especially with Windows display scaling.
+        # Size rows from the actual font metrics and leave a little vertical
+        # padding so descenders are not clipped at the bottom.
+        tree_style = ttk.Style()
+        tree_style.configure(
+            'Treeview',
+            font=self.tkinter_font,
+            rowheight=self.tkinter_font.metrics('linespace') + 4,
+        )
         
         self.tkintertree_itemid = 0
 
