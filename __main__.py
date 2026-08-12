@@ -95,13 +95,16 @@ class PrioritizedItem:
     item: Any=field(compare=False)
     descr: str=field(compare=False)
 
+TextStyle = dict[str, Any]
+StyleRun = tuple[str, str, TextStyle]
+
 @dataclass
 class FormattingHistoryEntry:
     """The styles changed by one user-visible formatting command."""
     start: str
     finish: str
-    before: list
-    after: list
+    before: list[StyleRun]
+    after: list[StyleRun]
     text: str
     modified_before: bool
     modified_after: bool
@@ -139,8 +142,8 @@ class OpenDocument:
     dirty: bool = False
     loading: bool = False
     content_hash: str = ''
-    formatting_undo_stack: list = field(default_factory=list)
-    formatting_redo_stack: list = field(default_factory=list)
+    formatting_undo_stack: list[FormattingHistoryEntry] = field(default_factory=list)
+    formatting_redo_stack: list[FormattingHistoryEntry] = field(default_factory=list)
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -1795,7 +1798,8 @@ class RTFWindow:
             else None
         )
         if (
-            formatting_entry is not None
+            document is not None
+            and formatting_entry is not None
             and self.formattingHistoryText() == formatting_entry.text
         ):
             document.formatting_undo_stack.pop()
@@ -1821,7 +1825,8 @@ class RTFWindow:
             else None
         )
         if (
-            formatting_entry is not None
+            document is not None
+            and formatting_entry is not None
             and self.formattingHistoryText() == formatting_entry.text
         ):
             document.formatting_redo_stack.pop()
@@ -2641,15 +2646,15 @@ class RTFWindow:
         for tag in list(self.style_tags):
             self.text.tag_remove(tag, start, finish)
 
-    def formattingHistoryText(self):
+    def formattingHistoryText(self) -> str:
         """Return the text used to order formatting and native undo entries."""
         return self.text.get('1.0', 'end-1c')
 
-    def captureStyleRuns(self, start, finish):
+    def captureStyleRuns(self, start: str, finish: str) -> list[StyleRun]:
         """Capture complete styles in a range as compact, index-based runs."""
         start = self.text.index(start)
         finish = self.text.index(finish)
-        runs = []
+        runs: list[StyleRun] = []
         current = start
         run_start = start
         run_style = None
@@ -2672,7 +2677,11 @@ class RTFWindow:
             runs.append((run_start, finish, run_style))
         return runs
 
-    def styleRunsEqual(self, first, second):
+    def styleRunsEqual(
+        self,
+        first: list[StyleRun],
+        second: list[StyleRun],
+    ) -> bool:
         if len(first) != len(second):
             return False
         return all(
@@ -2683,7 +2692,13 @@ class RTFWindow:
             in zip(first, second)
         )
 
-    def recordFormattingHistory(self, start, finish, before, modified_before):
+    def recordFormattingHistory(
+        self,
+        start: str,
+        finish: str,
+        before: list[StyleRun],
+        modified_before: bool,
+    ) -> None:
         """Add a completed tag-only change to the active tab's undo history."""
         document = self.active_document
         if document is None or document.loading:
@@ -2705,14 +2720,23 @@ class RTFWindow:
         document.formatting_redo_stack.clear()
         return None
 
-    def restoreStyleRuns(self, start, finish, runs):
+    def restoreStyleRuns(
+        self,
+        start: str,
+        finish: str,
+        runs: list[StyleRun],
+    ) -> None:
         self.removeStyleTags(start, finish)
         for run_start, run_finish, style in runs:
             tag = self.getStyleTag(style)
             if tag is not None:
                 self.text.tag_add(tag, run_start, run_finish)
 
-    def restoreFormattingHistoryEntry(self, entry, redo):
+    def restoreFormattingHistoryEntry(
+        self,
+        entry: FormattingHistoryEntry,
+        redo: bool,
+    ) -> None:
         """Replay one formatting entry without creating another history item."""
         self.restoreStyleRuns(
             entry.start,
@@ -2753,7 +2777,7 @@ class RTFWindow:
         start = self.text.index(start)
         finish = self.text.index(finish)
         modified_before = bool(self.text.edit_modified())
-        before = self.captureStyleRuns(start, finish) if record_history else None
+        before = self.captureStyleRuns(start, finish) if record_history else []
         current = start
         while self.text.compare(current, '<', finish):
             next_index = self.text.index(f'{current}+1c')
