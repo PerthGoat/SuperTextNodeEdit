@@ -35,9 +35,14 @@ class ScrollableText(tk.Frame):
         self.scrollx = tk.Scrollbar(self, orient='horizontal', command=text.xview)
         text.config(xscrollcommand=self.scrollx.set)
         self.set_wrap(wrap != 'none')
+
+        # Optional hooks let the editor preserve application-managed embedded
+        # objects that Tk itself cannot recreate through its undo stack.
+        self.before_delete: Callable[[Any, Any], Any] | None = None
+        self.after_delete: Callable[[Any], None] | None = None
         
         # set some functions to be that of text because the text object is the main one being interacted with
-        self.delete = text.delete
+        self._delete = text.delete
         self.insert = text.insert
         self.get = text.get
         self.see = text.see
@@ -71,6 +76,16 @@ class ScrollableText(tk.Frame):
         self.tag_ranges = text.tag_ranges
         self.update_idletasks = text.update_idletasks
         self.winfo_width = text.winfo_width
+
+    def delete(self, index1, index2=None):
+        delete_context = None
+        if self.before_delete is not None:
+            delete_context = self.before_delete(index1, index2)
+        try:
+            return self._delete(index1, index2)
+        finally:
+            if self.after_delete is not None:
+                self.after_delete(delete_context)
 
     def set_wrap(self, enabled):
         """Enable word wrapping and show horizontal scrolling only as needed."""

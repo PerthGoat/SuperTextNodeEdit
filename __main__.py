@@ -110,6 +110,17 @@ class FormattingHistoryEntry:
     modified_after: bool
 
 @dataclass
+class HorizontalRuleHistoryEntry:
+    """Horizontal rules destroyed by one text deletion."""
+    rule_indices: list[str]
+    text_before: str
+    text_after: str
+    modified_before: bool
+    modified_after: bool
+
+CustomHistoryEntry = FormattingHistoryEntry | HorizontalRuleHistoryEntry
+
+@dataclass
 class OpenDocument:
     """Editor and document-specific state for one open tab."""
     tab_id: str
@@ -142,8 +153,8 @@ class OpenDocument:
     dirty: bool = False
     loading: bool = False
     content_hash: str = ''
-    formatting_undo_stack: list[FormattingHistoryEntry] = field(default_factory=list)
-    formatting_redo_stack: list[FormattingHistoryEntry] = field(default_factory=list)
+    formatting_undo_stack: list[CustomHistoryEntry] = field(default_factory=list)
+    formatting_redo_stack: list[CustomHistoryEntry] = field(default_factory=list)
 
 # this is the meat of the program, that joins together the uicomponents, RTF parser, and INI config into one functional UI and software
 class RTFWindow:
@@ -439,6 +450,8 @@ class RTFWindow:
         self.bindShortcut(editor, 'e', lambda _: self.toggleCenterAlignmentForSelection())
         self.bindShortcut(editor, 'c', self.toggleFormatPainter, shift=True)
         editor.bind('<KeyPress>', self.insertTypedTextWithCurrentStyle, add='+')
+        editor.bind('<BackSpace>', self.deleteHorizontalRuleFromKey, add='+')
+        editor.bind('<Delete>', self.deleteHorizontalRuleFromKey, add='+')
         editor.bind('<KeyRelease>', self.scheduleToolbarStyleUpdate, add='+')
         editor.bind('<KeyRelease>', self.scheduleCenteredTextLayoutRefresh, add='+')
         editor.bind('<KeyRelease>', self.scheduleTableLayoutRefresh, add='+')
@@ -502,6 +515,11 @@ class RTFWindow:
             path=path,
             relative_path=relative_path,
         )
+        editor.before_delete = (
+            lambda start, finish, current_editor=editor:
+            self.beforeDocumentTextDelete(current_editor, start, finish)
+        )
+        editor.after_delete = self.afterDocumentTextDelete
         self.open_documents_by_tab[tab_id] = document
         if path:
             self.registerOpenDocumentPath(document)
@@ -1792,19 +1810,27 @@ class RTFWindow:
     def undoDocument(self, event=None):
         """Undo the most recent edit in the current document."""
         document = self.active_document
-        formatting_entry = (
+        history_entry = (
             document.formatting_undo_stack[-1]
             if document is not None and document.formatting_undo_stack
             else None
         )
         if (
             document is not None
-            and formatting_entry is not None
-            and self.formattingHistoryText() == formatting_entry.text
+            and isinstance(history_entry, FormattingHistoryEntry)
+            and self.formattingHistoryText() == history_entry.text
         ):
             document.formatting_undo_stack.pop()
-            self.restoreFormattingHistoryEntry(formatting_entry, redo=False)
-            document.formatting_redo_stack.append(formatting_entry)
+            self.restoreFormattingHistoryEntry(history_entry, redo=False)
+            document.formatting_redo_stack.append(history_entry)
+        elif (
+            document is not None
+            and isinstance(history_entry, HorizontalRuleHistoryEntry)
+            and self.formattingHistoryText() == history_entry.text_after
+        ):
+            document.formatting_undo_stack.pop()
+            self.restoreHorizontalRuleHistoryEntry(history_entry, redo=False)
+            document.formatting_redo_stack.append(history_entry)
         else:
             try:
                 self.text.edit_undo()
@@ -1819,19 +1845,27 @@ class RTFWindow:
     def redoDocument(self, event=None):
         """Redo the most recently undone edit in the current document."""
         document = self.active_document
-        formatting_entry = (
+        history_entry = (
             document.formatting_redo_stack[-1]
             if document is not None and document.formatting_redo_stack
             else None
         )
         if (
             document is not None
-            and formatting_entry is not None
-            and self.formattingHistoryText() == formatting_entry.text
+            and isinstance(history_entry, FormattingHistoryEntry)
+            and self.formattingHistoryText() == history_entry.text
         ):
             document.formatting_redo_stack.pop()
-            self.restoreFormattingHistoryEntry(formatting_entry, redo=True)
-            document.formatting_undo_stack.append(formatting_entry)
+            self.restoreFormattingHistoryEntry(history_entry, redo=True)
+            document.formatting_undo_stack.append(history_entry)
+        elif (
+            document is not None
+            and isinstance(history_entry, HorizontalRuleHistoryEntry)
+            and self.formattingHistoryText() == history_entry.text_before
+        ):
+            document.formatting_redo_stack.pop()
+            self.restoreHorizontalRuleHistoryEntry(history_entry, redo=True)
+            document.formatting_undo_stack.append(history_entry)
         else:
             try:
                 self.text.edit_redo()
@@ -2732,6 +2766,20 @@ class RTFWindow:
             if tag is not None:
                 self.text.tag_add(tag, run_start, run_finish)
 
+    def restoreDocumentModifiedState(self, fallback_modified: bool) -> None:
+        """Update dirty state after replaying an application-managed edit."""
+        modified = fallback_modified
+        document = self.active_document
+        if document is not None and document.path and document.content_hash:
+            current_hash = self.documentContentHash(
+                self.convertToRTF('1.0', 'end')
+            )
+            modified = current_hash != document.content_hash
+        self.text.edit_modified(modified)
+        if document is not None:
+            document.dirty = bool(modified and document.path)
+            self.updateDocumentTabTitle(document)
+
     def restoreFormattingHistoryEntry(
         self,
         entry: FormattingHistoryEntry,
@@ -2744,16 +2792,7 @@ class RTFWindow:
             entry.after if redo else entry.before,
         )
         modified = entry.modified_after if redo else entry.modified_before
-        document = self.active_document
-        if document is not None and document.path and document.content_hash:
-            current_hash = self.documentContentHash(
-                self.convertToRTF('1.0', 'end')
-            )
-            modified = current_hash != document.content_hash
-        self.text.edit_modified(modified)
-        if document is not None:
-            document.dirty = bool(modified and document.path)
-            self.updateDocumentTabTitle(document)
+        self.restoreDocumentModifiedState(modified)
         self.scheduleCenteredTextLayoutRefresh()
         self.scheduleTableLayoutRefresh()
         return None
@@ -4696,6 +4735,126 @@ class RTFWindow:
         }
         self.scheduleHorizontalRuleLayoutRefresh()
         return embedded_name
+
+    def horizontalRulesInRange(self, start, finish):
+        """Return registered horizontal-rule names and indices in a range."""
+        return [
+            (token_value, self.text.index(token_index))
+            for token_type, token_value, token_index in self.text.dump(start, finish)
+            if token_type == 'window' and token_value in self.horizontal_rules
+        ]
+
+    def beforeDocumentTextDelete(self, editor, start, finish):
+        """Capture horizontal rules before a Text.delete call destroys them."""
+        document = self.open_documents_by_tab.get(str(editor))
+        if (
+            document is None
+            or document is not self.active_document
+            or document.loading
+        ):
+            return None
+
+        start = editor.index(start)
+        finish = (
+            editor.index(f'{start}+1c')
+            if finish is None
+            else editor.index(finish)
+        )
+        rules = self.horizontalRulesInRange(start, finish)
+        if not rules:
+            return None
+
+        editor.edit_separator()
+        return (
+            document,
+            rules,
+            self.formattingHistoryText(),
+            bool(editor.edit_modified()),
+        )
+
+    def afterDocumentTextDelete(self, delete_context):
+        """Record a completed deletion that contained horizontal rules."""
+        if delete_context is None:
+            return None
+
+        document, rules, text_before, modified_before = delete_context
+        if document is not self.active_document or document.loading:
+            return None
+
+        live_rule_names = {
+            token_value
+            for token_type, token_value, _token_index
+            in self.text.dump('1.0', 'end')
+            if token_type == 'window'
+        }
+        deleted_rule_indices = [
+            rule_index
+            for rule_name, rule_index in rules
+            if rule_name not in live_rule_names
+        ]
+        if not deleted_rule_indices:
+            return None
+
+        self.text.edit_separator()
+        self.markCurrentDocumentModified()
+        document.formatting_undo_stack.append(HorizontalRuleHistoryEntry(
+            rule_indices=deleted_rule_indices,
+            text_before=text_before,
+            text_after=self.formattingHistoryText(),
+            modified_before=modified_before,
+            modified_after=bool(self.text.edit_modified()),
+        ))
+        document.formatting_redo_stack.clear()
+        self.scheduleHorizontalRuleLayoutRefresh()
+        return None
+
+    def deleteHorizontalRuleFromKey(self, event):
+        """Route Backspace/Delete through managed history when they hit a rule."""
+        selected_range = self.selectedTextRange(show_error=False)
+        if selected_range is not None:
+            start, finish = selected_range
+        else:
+            insertion_index = self.text.index('insert')
+            if event.keysym == 'BackSpace':
+                if self.text.compare(insertion_index, '==', '1.0'):
+                    return None
+                start = self.text.index(f'{insertion_index}-1c')
+                finish = insertion_index
+            else:
+                start = insertion_index
+                finish = self.text.index(f'{insertion_index}+1c')
+
+        if not self.horizontalRulesInRange(start, finish):
+            return None
+
+        self.text.delete(start, finish)
+        self.scheduleToolbarStyleUpdate()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        return 'break'
+
+    def restoreHorizontalRuleHistoryEntry(self, entry, redo):
+        """Replay deletion of embedded rules around Tk's text-only history."""
+        try:
+            if redo:
+                self.text.edit_redo()
+            else:
+                self.text.edit_undo()
+        except tk.TclError:
+            pass
+
+        if not redo:
+            for rule_index in entry.rule_indices:
+                self.createHorizontalRule(rule_index)
+
+        modified = entry.modified_after if redo else entry.modified_before
+        self.refreshHorizontalRuleLayout()
+        self.restoreDocumentModifiedState(modified)
+        self.scheduleToolbarStyleUpdate()
+        self.scheduleCenteredTextLayoutRefresh()
+        self.scheduleTableLayoutRefresh()
+        self.scheduleHorizontalRuleLayoutRefresh()
+        return None
 
     def horizontalRuleWidth(self, token_index=None):
         """Return the usable width of the active document."""

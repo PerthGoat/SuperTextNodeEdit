@@ -1204,6 +1204,59 @@ class TestRTFWindowFunctionality(unittest.TestCase):
         self.assertEqual(1, len(rule_tokens))
         self.assertIn(rule_tokens[0][1], self.window.horizontal_rules)
 
+    def test_deleted_horizontal_rule_can_be_undone_and_redone(self):
+        self.window.text.insert("1.0", "Above")
+        self.window.text.mark_set("insert", "end-1c")
+        self.window.insertHorizontalRule()
+        self.window.text.insert("insert", "Below")
+        self.window.text.edit_reset()
+
+        self.window.text.delete("2.0", "2.1")
+        self.assertFalse(any(
+            token[0] == "window"
+            for token in self.window.text.dump("1.0", "end")
+        ))
+
+        self.window.undoDocument()
+        restored_rule = next(
+            token
+            for token in self.window.text.dump("1.0", "end")
+            if token[0] == "window"
+        )
+        self.assertEqual("2.0", restored_rule[2])
+        self.assertIn(restored_rule[1], self.window.horizontal_rules)
+
+        self.window.redoDocument()
+        self.assertFalse(any(
+            token[0] == "window"
+            for token in self.window.text.dump("1.0", "end")
+        ))
+
+        self.window.undoDocument()
+        self.assertTrue(any(
+            token[0] == "window"
+            for token in self.window.text.dump("1.0", "end")
+        ))
+
+    def test_deleting_selected_text_and_rule_is_one_undoable_edit(self):
+        self.window.text.insert("1.0", "Above")
+        self.window.text.mark_set("insert", "end-1c")
+        self.window.insertHorizontalRule()
+        self.window.text.insert("insert", "Below")
+        self.window.text.edit_reset()
+
+        self.window.text.delete("1.2", "3.2")
+        self.assertEqual("Ablow", self.window.text.get("1.0", "end-1c"))
+
+        self.window.undoDocument()
+        self.assertEqual("Above\n\nBelow", self.window.text.get("1.0", "end-1c"))
+        restored_rule = next(
+            token
+            for token in self.window.text.dump("1.0", "end")
+            if token[0] == "window"
+        )
+        self.assertEqual("2.0", restored_rule[2])
+
     def test_insert_table_with_header_adds_separator_row(self):
         self.window.insertTable(3, 2, has_header=True)
 
